@@ -62,8 +62,10 @@ class Particle:
         cropped_chance_nn_integral_show /= (cropped_chance_nn_integral_show.max() + 1e-9)
         cv2.imshow("filtered_scs_frame", (255 * cropped_chance_nn_integral_show).astype(np.uint8))
         cv2.waitKey(1)
+        #find the maximum of cropped_chance_nn_integral and return its index as (x, y)
         max_index = np.unravel_index(np.argmax(cropped_chance_nn_integral), cropped_chance_nn_integral.shape)
-        return max_index
+        # convert to (x, y)
+        return max_index[::-1]
 
     def scs_filter(self, frame):
         assert frame.ndim == 2, "frame must be grayscale"

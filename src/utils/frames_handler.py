@@ -20,12 +20,12 @@ youtube_tlwh_small = (160, 2019, 1280, 720)
 youtube_tlwh_large = (80, 1921, 1901, 1135)
 
 mouse_coords = (-1, -1)
-kernel_size = 101
+kernel_size = 51
 crop_size = kernel_size * 3 + 1
-particles = [Particle(kernel_size, crop_size, p=3, q=1e-9, temperature=0.1)]
+particles = [Particle(kernel_size, crop_size, p=3, q=1e-9, temperature=1.0)]
 
 
-def capture_frames_live(img_proc_func, tlwh=None, monitor_number=0):
+def capture_frames_live(tlwh=None, monitor_number=0):
     global mouse_coords, particles
 
     def mouse_callback(event, x, y, flags, param):
@@ -72,5 +72,4 @@ def frame_to_numpy(frame, height, width):
     return img.astype(np.uint8)
 
 if __name__ == '__main__':
-    img_proc = partial(image_processing, ones_kernel=np.ones((kernel_size, kernel_size), np.float32), p=7, q=1e-9)
-    capture_frames_live(img_proc, youtube_tlwh_large)
+    capture_frames_live(youtube_tlwh_large)
