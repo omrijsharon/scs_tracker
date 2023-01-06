@@ -1,7 +1,7 @@
 import cv2
 from multiprocessing import Process, Queue
 
-from utils.frames_handler import capture_frames_live, load_frame
+from core.pipelines import capture_frames_live, load_frame
 
 youtube_tlwh_small = (160, 2019, 1280, 720)
 youtube_tlwh_large = (80, 1921, 1901, 1135)

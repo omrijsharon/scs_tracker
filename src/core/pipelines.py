@@ -3,10 +3,8 @@ import mss
 import cv2
 from functools import partial
 
-from utils.particle import Particle
-from utils.scs import create_kernel
-from utils.image_proc import image_processing
-from utils.helper_functions import softmax
+from utils.particle import Particle, ParticlesGrid
+
 
 SMALL_TOP = 160
 SMALL_LEFT = 2019
@@ -22,10 +20,11 @@ youtube_tlwh_large = (80, 1921, 1901, 1135)
 mouse_coords = (-1, -1)
 kernel_size = 51
 crop_size = kernel_size * 3 + 1
-particles = [Particle(kernel_size, crop_size, p=3, q=1e-9, temperature=1.0)]
+nn_size = 5
+particles = [Particle(kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.01)]
 
 
-def capture_frames_live(tlwh=None, monitor_number=0):
+def track_mouse_clicked_target(tlwh=None, monitor_number=0):
     global mouse_coords, particles
 
     def mouse_callback(event, x, y, flags, param):
@@ -56,7 +55,11 @@ def capture_frames_live(tlwh=None, monitor_number=0):
             img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             if particles[0].kernel is not None:
                 # cv2.imshow("kernel", (255 * kernel/kernel.max()).astype(np.uint8))
-                mouse_coords = particles[0].update(img_gray)
+                mouse_coords, max_chance = particles[0].update(img_gray)
+                if max_chance < 0.95:
+                    particles[0].reset()
+                    print("reset", max_chance*100, "%")
+                    mouse_coords = (-1, -1)
             img_show = img.copy()
             if mouse_coords[0] > -1:
                 # cv2.arrowedLine(img_show, np.array(mouse_coords)-velocity_vector, np.array(mouse_coords), (0, 255, 0), 2)
