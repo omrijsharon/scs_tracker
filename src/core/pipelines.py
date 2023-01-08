@@ -18,10 +18,11 @@ youtube_tlwh_small = (160, 2019, 1280, 720)
 youtube_tlwh_large = (80, 1921, 1901, 1135)
 
 mouse_coords = (-1, -1)
-kernel_size = 51
-crop_size = kernel_size * 3 + 1
-nn_size = 5
+kernel_size = 31
+crop_size = kernel_size * 2 + 1
+nn_size = 7
 particles = [Particle(kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.01)]
+particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
 
 
 def track_mouse_clicked_target(tlwh=None, monitor_number=0):
@@ -56,7 +57,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
             if particles[0].kernel is not None:
                 # cv2.imshow("kernel", (255 * kernel/kernel.max()).astype(np.uint8))
                 mouse_coords, max_chance = particles[0].update(img_gray)
-                if max_chance < 0.95:
+                if max_chance < 0.2:
                     particles[0].reset()
                     print("reset", max_chance*100, "%")
                     mouse_coords = (-1, -1)
@@ -70,9 +71,45 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
     cv2.destroyAllWindows()
 
 
+def track_grid(tlwh=None, monitor_number=0):
+    global particle_grid
+    if tlwh is None:
+        tlwh = (SMALL_TOP, SMALL_LEFT, SMALL_WIDTH, SMALL_HEIGHT)
+    with mss.mss() as sct:
+        mon = sct.monitors[monitor_number]
+        # The screen part to capture
+        monitor = {
+            "top": mon["top"] + tlwh[0],  # 100px from the top
+            "left": mon["left"] + tlwh[1],  # 100px from the left
+            "width": tlwh[2],
+            "height": tlwh[3],
+            "mon": monitor_number,
+        }
+        cv2.namedWindow('frame')
+        img_byte = sct.grab(monitor)
+        img = frame_to_numpy(img_byte, tlwh[3], tlwh[2])
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        particle_grid.create_kernels(img_gray)
+        while True:
+            img_byte = sct.grab(monitor)
+            img = frame_to_numpy(img_byte, tlwh[3], tlwh[2])
+            img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            particle_grid.update(img_gray)
+            particle_grid.drawParticles(img)
+            particle_grid.drawVelocities(img)
+            particle_grid.drawKernelsWindows(img)
+            cv2.imshow('frame', img)
+            particle_grid.reset()
+            particle_grid.create_kernels(img_gray)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    cv2.destroyAllWindows()
+
+
 def frame_to_numpy(frame, height, width):
     img = np.frombuffer(frame.rgb, np.uint8).reshape(height, width, 3)[:, :, ::-1]
     return img.astype(np.uint8)
 
 if __name__ == '__main__':
-    capture_frames_live(youtube_tlwh_large)
+    track_mouse_clicked_target(youtube_tlwh_large)
+    # track_grid(youtube_tlwh_small)

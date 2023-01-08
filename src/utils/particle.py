@@ -64,9 +64,9 @@ class Particle:
         cropped_chance_nn_integral_show = (255 * cropped_chance_nn_integral_show).astype(np.uint8)
         max_change = cropped_chance_nn_integral.max()
         # add max_change as text to cropped_chance_nn_integral_show:
-        cv2.putText(cropped_chance_nn_integral_show, str(100*max_change) + "%", (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
-        cv2.imshow("filtered_scs_frame", cropped_chance_nn_integral_show)
-        cv2.waitKey(1)
+        # cv2.putText(cropped_chance_nn_integral_show, str(100*max_change) + "%", (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
+        # cv2.imshow("filtered_scs_frame", cropped_chance_nn_integral_show)
+        # cv2.waitKey(1)
         #find the maximum of cropped_chance_nn_integral and return its index as (x, y)
         max_index = np.unravel_index(np.argmax(cropped_chance_nn_integral), cropped_chance_nn_integral.shape)
         # convert to (x, y)
@@ -83,7 +83,6 @@ class Particle:
 class ParticlesGrid:
     def __init__(self, resolution, kernel_size, crop_size, nn_size, p, q, temperature=1, grid_size=(8, 6)):
         self.grid_size = grid_size
-        self.particles = np.empty((np.prod(grid_size)), dtype=Particle)
         self.velocities = np.empty((np.prod(grid_size), 2), dtype=np.float32)
         self.grid = grid_from_resolution(resolution, grid_size, exclude_edges=True)
         self.kernel_size = kernel_size
@@ -92,31 +91,32 @@ class ParticlesGrid:
         self.p = p
         self.q = q
         self.temperature = temperature
+        self.particles = [Particle(kernel_size, crop_size, nn_size, p, q, temperature) for _ in range(grid_size[0] * grid_size[1])]
 
     def reset(self):
-        map(lambda p: p.reset(), self.particles)
+        [p.reset() for p in self.particles]
 
     def create_kernels(self, frame):
         assert frame.ndim == 2, "frame must be grayscale"
         # create the kernels from the grid
-        map(lambda p, xy: p.create_kernel(frame, xy), self.particles, self.grid)
+        [p.create_kernel(frame, xy) for p, xy in zip(self.particles, self.grid)]
 
     def update(self, frame):
         assert frame.ndim == 2, "frame must be grayscale"
-        map(lambda p: p.update(frame), self.particles)
+        [p.update(frame) for p in self.particles]
         self.velocities = list(map(lambda p: p.velocity, self.particles))
-
-    def drawVelocities(self, frame):
-        for i in range(len(self.grid)):
-            # draw velocity vector arrow from each grid point of a particle
-            cv2.arrowedLine(frame, tuple(self.grid[i]), tuple(self.grid[i] + self.velocities[i]), (0, 255, 0), 1)
 
     def drawParticles(self, frame):
         for i in range(len(self.grid)):
             # draw a circle at each grid point of a particle
             cv2.circle(frame, tuple(self.grid[i]), 1, (0, 0, 255), 1)
 
-    def drawKernels(self, frame):
+    def drawVelocities(self, frame):
+        for i in range(len(self.grid)):
+            # draw velocity vector arrow from each grid point of a particle
+            cv2.arrowedLine(frame, tuple(self.grid[i]), tuple(self.grid[i] + self.velocities[i]), (0, 255, 0), 1)
+
+    def drawKernelsWindows(self, frame):
         # draw kernel's rectangles onto the frame:
         for i in range(len(self.grid)):
             x, y = self.grid[i]
