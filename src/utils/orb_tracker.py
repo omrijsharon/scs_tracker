@@ -51,6 +51,7 @@ class ORB_tracker:
             x, y = kp.pt
             cv2.circle(cropped_frame, (int(x), int(y)), 2, (0, 255, 0), 2)
         cv2.imshow('keypoints', cropped_frame)
+        print(len(descriptors))
         matches = self.matcher.match(self.last_descriptors, descriptors)
         if matches is None: # no matches
             warnings.warn('No matches found')
@@ -62,13 +63,40 @@ class ORB_tracker:
             next_pts = np.float32([keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
             self._update_variables(frame, keypoints, descriptors)
             self.xy = (self.last_crop_top_left + next_pts.mean(axis=0).reshape(-1)).astype(int)
-            self.next_crop_size = tuple(next_pts.std(axis=0).reshape(-1).astype(int) * 4)
+            # self.next_crop_size = tuple(next_pts.std(axis=0).reshape(-1).astype(int) * 10)
+            print(self.next_crop_size)
             return (next_pts + self.last_crop_top_left).astype(np.int32)
+
+    def update_cosim(self, frame):
+        print("!")
+        if self.xy is None:
+            raise Exception('Run reset() before update()')
+        cropped_frame = self.crop_frame(frame)
+        # cropped_frame = frame
+        keypoints, descriptors = self.orb.detectAndCompute(cropped_frame, None)
+        print(len(descriptors))
+        for kp in keypoints:
+            x, y = kp.pt
+            cv2.circle(cropped_frame, (int(x), int(y)), 2, (0, 255, 0), 2)
+        cv2.imshow('keypoints', cropped_frame)
+        matches, cos_dist = self.match_descriptors(self.last_descriptors, descriptors)
+        # matches = sorted(matches, key=lambda x: x.distance)[:self.top_k_features]
+        # prev_pts = np.float32([self.last_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        next_pts = np.float32([keypoints[m].pt for m in matches]).reshape(-1, 1, 2)
+        self._update_variables(frame, keypoints, descriptors)
+        self.xy = (self.last_crop_top_left + next_pts.mean(axis=0).reshape(-1)).astype(int)
+        # self.next_crop_size = tuple(next_pts.std(axis=0).reshape(-1).astype(int) * 10)
+        print(self.next_crop_size)
+        return (next_pts + self.last_crop_top_left).astype(np.int32)
 
     @staticmethod
     def descriptors_cosine_similarity(descriptors1, descriptors2):
         return (descriptors1 / np.linalg.norm(descriptors1, axis=1, keepdims=True)) @ (
                     descriptors2 / np.linalg.norm(descriptors2, axis=1, keepdims=True)).T
+
+    def match_descriptors(self, descriptors1, descriptors2):
+        similarity_matrix = self.descriptors_cosine_similarity(descriptors1, descriptors2)
+        return np.argmax(similarity_matrix, axis=1), np.max(similarity_matrix, axis=1)
 
     def crop_frame(self, frame):
         x, y = self.xy

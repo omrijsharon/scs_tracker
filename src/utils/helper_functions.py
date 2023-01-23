@@ -1,5 +1,5 @@
 import numpy as np
-
+import cv2
 
 def softmax(x):
     e_x = np.exp(x - np.max(x))
@@ -24,3 +24,31 @@ def grid_from_resolution(resolution, grid_size, exclude_edges=False):
         x_coords = x_coords[1:-1]
         y_coords = y_coords[1:-1]
     return np.array(np.meshgrid(x_coords, y_coords)).T.reshape(-1, 2)
+
+
+def distance_between_pixels(pixel, pixel_array):
+    # pixel: (x, y)
+    # pixel_array: (n, 2)
+    return np.sqrt(np.square(pixel_array[:, 0] - pixel[0]) + np.square(pixel_array[:, 1] - pixel[1]))
+
+
+def argmax2d(array):
+    # returns the index of the maximum value in a 2d array
+    return np.unravel_index(np.argmax(array), array.shape)
+
+
+def as_cv_img(img):
+    return (img / img.max() * 255).astype(np.uint8)
+
+
+def normalize_img(img, kernel_size, eps=1e-6):
+    k = np.ones((kernel_size, kernel_size), dtype=np.float32)
+    return img / (np.sqrt(cv2.filter2D(img.astype(np.float32)**2, cv2.CV_32F, k)) + eps)
+
+def normalize_kernel(k):
+    return k / np.linalg.norm(k, keepdims=True)
+
+
+def frame_to_numpy(frame, height, width):
+    img = np.frombuffer(frame.rgb, np.uint8).reshape(height, width, 3)[:, :, ::-1]
+    return img.astype(np.uint8)
