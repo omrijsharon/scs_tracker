@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 
+
 def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / (e_x.sum()+1e-15)
@@ -45,6 +46,7 @@ def normalize_img(img, kernel_size, eps=1e-6):
     k = np.ones((kernel_size, kernel_size), dtype=np.float32)
     return img / (np.sqrt(cv2.filter2D(img.astype(np.float32)**2, cv2.CV_32F, k)) + eps)
 
+
 def normalize_kernel(k):
     return k / np.linalg.norm(k, keepdims=True)
 
@@ -52,3 +54,4 @@ def normalize_kernel(k):
 def frame_to_numpy(frame, height, width):
     img = np.frombuffer(frame.rgb, np.uint8).reshape(height, width, 3)[:, :, ::-1]
     return img.astype(np.uint8)
+

@@ -1,15 +1,17 @@
 import numpy as np
 import cv2
+from rembg import remove
 
 from utils.helper_functions import grid_from_resolution
 from utils.helper_functions import softmax, distance_between_pixels
 
 
 class Particle:
-    def __init__(self, kernel_size, crop_size, nn_size, p, q, temperature=1):
+    def __init__(self, kernel_size, crop_size, nn_size, p, q, temperature=1, rembg=False):
         self.kernel_size = kernel_size
         self.kernel_ones = np.ones((kernel_size, kernel_size), np.float32)
         self.kernel = None
+        self.kernel_rot90 = None
         self.nn_p_avg = np.ones((nn_size, nn_size), np.float32)
         self.last_coordinates = None
         self.coordinates = None
@@ -25,6 +27,7 @@ class Particle:
         # gaussian kernel
         std = 61
         self.nn_p = np.exp(-((X ** 2 + Y ** 2) / (2 * (std // 2) ** 2))) * (1 / (2 * np.pi * (std // 2) ** 2))
+        self.rembg = rembg
 
     def reset(self):
         self.kernel = None
@@ -44,6 +47,9 @@ class Particle:
         self.kernel = frame[y - self.kernel_size // 2:y + self.kernel_size // 2 + 1, x - self.kernel_size // 2:x + self.kernel_size // 2 + 1].astype(np.float32)
         kernel_norm = np.sqrt(np.square(self.kernel).sum())
         self.kernel = self.kernel / (kernel_norm + 1e-9)
+        # rotated kernel in 90 degrees:
+        # self.kernel_rot90 = np.rot90(self.kernel, 1)
+
 
     def update(self, frame):
         assert frame.ndim == 2, "frame must be grayscale"
@@ -55,7 +61,12 @@ class Particle:
         cropped_frame = frame[y - self.crop_size // 2:y + self.crop_size // 2 + 1, x - self.crop_size // 2:x + self.crop_size // 2 + 1]
         if np.any(np.array(cropped_frame.shape) == 0):
             return None, None
+        if self.rembg:
+            output = remove((((cropped_frame+1) / 2) * 255).astype(np.uint8), alpha_matting=True)
+            cv2.imshow("output", output)
+            cv2.waitKey(1)
         filtered_scs_frame = self.scs_filter(cropped_frame)
+        # filtered_scs_frame = self.scs_filter_angle_invariant(cropped_frame)
         #find the maximum of the filtered_scs_frame
         max_index, max_change = self.find_max(filtered_scs_frame)
         idx = max_index
@@ -139,9 +150,9 @@ class Particle:
         max_change = cropped_chance_nn_integral.max()
         # add max_change as text to cropped_chance_nn_integral_show:
         # cv2.putText(cropped_chance_nn_integral_show, str(100*max_change) + "%", (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
-        cv2.imshow("filtered_scs_frame", (filtered_scs_softmax_frame / filtered_scs_softmax_frame.max() * 255).astype(np.uint8))
+        # cv2.imshow("filtered_scs_frame", (filtered_scs_softmax_frame / filtered_scs_softmax_frame.max() * 255).astype(np.uint8))
         # cv2.imshow("nn_p", (self.nn_p / self.nn_p.max() * 255).astype(np.uint8))
-        cv2.waitKey(1)
+        # cv2.waitKey(1)
         #find the maximum of cropped_chance_nn_integral and return its index as (x, y)
         max_index = np.unravel_index(np.argmax(cropped_chance_nn_integral), cropped_chance_nn_integral.shape)
         # convert to (x, y)
@@ -155,6 +166,15 @@ class Particle:
         filtered_scs_frame = np.sign(filtered_frame) * (np.abs(filtered_frame) / (norm_frame + self.q)) ** self.p
         return filtered_scs_frame
 
+    def scs_filter_angle_invariant(self, frame):
+        assert frame.ndim == 2, "frame must be grayscale"
+        assert np.any(frame.shape != 0), "frame must not be empty"
+        norm_frame = np.sqrt(cv2.filter2D(frame.astype(np.float32)**2, cv2.CV_32F, self.kernel_ones))
+        filtered_frame = cv2.filter2D(frame, cv2.CV_32F, self.kernel)
+        filtered_scs_frame = np.sign(filtered_frame) * (np.abs(filtered_frame) / (norm_frame + self.q)) ** self.p
+        filtered_frame_rot90 = cv2.filter2D(frame, cv2.CV_32F, self.kernel_rot90)
+        filtered_scs_frame_rot90 = np.sign(filtered_frame_rot90) * (np.abs(filtered_frame_rot90) / (norm_frame + self.q)) ** self.p
+        return np.sqrt(((filtered_scs_frame+1)/2) ** 2 + ((filtered_scs_frame_rot90+1)/2) ** 2) - 1
 
 class ParticlesGrid:
     def __init__(self, resolution, kernel_size, crop_size, nn_size, p, q, temperature=1, grid_size=(8, 6)):
@@ -198,3 +218,75 @@ class ParticlesGrid:
             x, y = self.grid[i]
             cv2.rectangle(frame, (x - self.kernel_size // 2, y - self.kernel_size // 2),
                           (x + self.kernel_size // 2, y + self.kernel_size // 2), (255, 0, 0), 1)
+
+
+class ParticleRembg:
+    def __init__(self, crop_size):
+        self.last_coordinates = None
+        self.coordinates = None
+        self.velocity = None
+        self.coordinates_array = np.empty((0, 2), np.int32)
+        self.velocity_array = np.empty((0, 2), np.float32)
+        self.crop_size = int(crop_size)
+
+    def reset(self):
+        self.last_coordinates = None
+        self.coordinates = None
+        self.coordinates_array = np.empty((0, 2), np.int32)
+        self.velocity_array = np.empty((0, 2), np.float32)
+
+    def create_kernel(self, frame, xy):
+        assert frame.ndim == 2, "frame must be grayscale"
+        x, y = xy
+        if self.kernel is None: # first time
+            self.last_coordinates = xy
+            self.coordinates_array = np.vstack((self.coordinates_array, np.array(self.last_coordinates).reshape(1, 2)))
+            self.velocity = np.zeros(2)
+        self.coordinates = xy
+        self.kernel = frame[y - self.kernel_size // 2:y + self.kernel_size // 2 + 1, x - self.kernel_size // 2:x + self.kernel_size // 2 + 1].astype(np.float32)
+        kernel_norm = np.sqrt(np.square(self.kernel).sum())
+        self.kernel = self.kernel / (kernel_norm + 1e-9)
+        # rotated kernel in 90 degrees:
+        # self.kernel_rot90 = np.rot90(self.kernel, 1)
+
+    def update(self, frame):
+        assert frame.ndim == 2, "frame must be grayscale"
+        #crop frame around the last coordinates + velocity:
+        x, y = self.coordinates + self.velocity
+        x = int(x)
+        y = int(y)
+        cropped_frame = frame[y - self.crop_size // 2:y + self.crop_size // 2 + 1, x - self.crop_size // 2:x + self.crop_size // 2 + 1]
+        if np.any(np.array(cropped_frame.shape) == 0):
+            return None, None
+        cropped_rembg = remove((((cropped_frame+1) / 2) * 255).astype(np.uint8), alpha_matting=True)
+        cv2.imshow("cropped_rembg", cropped_rembg)
+        cv2.waitKey(1)
+        x, y, w, h = self.find_bounding_box(cropped_rembg)
+        if w == 0 or h == 0:
+            return None, None
+        self.last_coordinates = self.coordinates
+        # @TODO: I am here:
+        self.coordinates = np.array([x, y]) + np.array([x - self.crop_size // 2, y - self.crop_size // 2])
+        self.coordinates_array = np.vstack((self.coordinates_array, self.coordinates.reshape(1, 2)))
+        #update the velocity
+        self.velocity = self.coordinates - self.last_coordinates
+        self.velocity_array = np.vstack((self.velocity_array, self.velocity.reshape(1, 2)))
+        #create a new kernel
+        self.create_kernel(frame, self.coordinates)
+        # return self.coordinates
+        return self.coordinates, max_change
+
+    def find_bounding_box(self, cropped_rembg):
+        # find the bounding box of the object in the cropped frame
+        cropped_rembg = cv2.cvtColor(cropped_rembg, cv2.COLOR_BGR2GRAY)
+        cropped_rembg = cv2.GaussianBlur(cropped_rembg, (5, 5), 0)
+        cropped_rembg = cv2.Canny(cropped_rembg, 50, 150)
+        # cv2.imshow("cropped_rembg", cropped_rembg)
+        # cv2.waitKey(1)
+        contours, _ = cv2.findContours(cropped_rembg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if len(contours) == 0:
+            return None
+        # find the biggest area
+        c = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(c)
+        return x, y, w, h
