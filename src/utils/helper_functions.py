@@ -55,3 +55,9 @@ def frame_to_numpy(frame, height, width):
     img = np.frombuffer(frame.rgb, np.uint8).reshape(height, width, 3)[:, :, ::-1]
     return img.astype(np.uint8)
 
+
+def particles_mean_std(particles):
+    coordinates = np.zeros((len(particles), 2))
+    for i, particle in enumerate(particles):
+        coordinates[i] = particle.coordinates
+    return np.mean(coordinates, axis=0), np.std(coordinates, axis=0)

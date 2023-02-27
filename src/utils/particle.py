@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from rembg import remove
+from rembg import remove, new_session
 
 from utils.helper_functions import grid_from_resolution
 from utils.helper_functions import softmax, distance_between_pixels
@@ -221,7 +221,9 @@ class ParticlesGrid:
 
 
 class ParticleRembg:
-    def __init__(self, max_crop_size: int = 100):
+    def __init__(self, max_crop_size: int = 250):
+        # self.session = new_session(model_name="silueta")
+        self.session = new_session()
         self.last_coordinates = None
         self.coordinates = None
         self.velocity = None
@@ -230,6 +232,9 @@ class ParticleRembg:
         self.max_crop_size = max_crop_size
         self.crop_size = np.array([self.max_crop_size, self.max_crop_size])
         self.crop = np.zeros((self.crop_size[1], self.crop_size[0]), np.uint8)
+        self.canny_top_percent = 0.8
+        self.canny_bottom_percent = 0.2
+        self.bbox_params = None
 
     def reset(self, frame):
         self.last_coordinates = None
@@ -239,8 +244,15 @@ class ParticleRembg:
         self.velocity_array = np.empty((0, 2), np.float32)
         cropped_rembg = remove(frame, alpha_matting=True)
         x, y, w, h = self.find_bounding_box(cropped_rembg)
-        self.show_boundingbox(frame, x, y, w, h)
+        self.bbox_params = (x, y, w, h)
+        if x is None:
+            raise ValueError("No object found in the frame")
+        # self.show_boundingbox(frame, x, y, w, h)
         self.coordinates = np.array([x + w // 2, y + h // 2])
+        self.crop_size = np.array([min(w, self.max_crop_size), min(h, self.max_crop_size)])
+        self.create_crop(frame, self.coordinates)
+        self.coordinates_array = np.vstack((self.coordinates_array, self.coordinates.reshape(1, 2)))
+        # self.show_crop(frame)
 
     def create_kernel(self, frame, xy):
         assert frame.ndim == 2, "frame must be grayscale"
@@ -259,42 +271,36 @@ class ParticleRembg:
     def update(self, frame):
         assert frame.ndim == 2, "frame must be grayscale"
         assert frame.dtype == np.uint8, "frame must be np.uint8"
-        if self.is_first:
-            cropped_rembg = remove(frame, alpha_matting=True)
-            x, y, w, h = self.find_bounding_box(cropped_rembg)
-            self.show_boundingbox(frame, x, y, w, h)
-            self.coordinates = np.array([x + w // 2, y + h // 2])
-        else:
-            self.create_crop(frame, self.coordinates)
-            cropped_rembg = remove(self.crop, alpha_matting=True)
-            x, y, w, h = self.find_bounding_box(cropped_rembg)
-            self.coordinates = np.array([x, y]) + np.array([self.coordinates[0] - self.crop_size[0] // 2, self.coordinates[1] - self.crop_size[1] // 2])
-            self.show_boundingbox(frame, *self.coordinates, w, h)
+        self.last_coordinates = self.coordinates
+        cropped_rembg = remove(self.crop, session=self.session, alpha_matting=True)
+        certainty = cropped_rembg.max()/255
+        # print("certainty: ", certainty * 100 , "%")
+        x, y, w, h = self.find_bounding_box(cropped_rembg)
+        if x is None:
+            raise ValueError("No object found in the frame")
+        self.coordinates = np.array([x + w//2, y + h//2]) + np.array([self.coordinates[0] - self.crop_size[0] // 2, self.coordinates[1] - self.crop_size[1] // 2])
+        self.bbox_params = (*(np.array([x, y]) + np.array([self.coordinates[0] - self.crop_size[0] // 2, self.coordinates[1] - self.crop_size[1] // 2])), w, h)
+        # Why did the velocity change?
+        self.velocity = self.coordinates - self.last_coordinates
+        # self.show_boundingbox(frame, *self.coordinates, w, h)
         self.crop_size = np.array([min(w, self.max_crop_size), min(h, self.max_crop_size)])
         #crop frame around the last coordinates + velocity:
-        x, y = self.coordinates + self.velocity
-        self.create_crop(frame, (x, y))
+        estimated_coordinates = self.coordinates + self.velocity*0
+        self.create_crop(frame, estimated_coordinates)
         if np.any(np.array(self.crop.shape) == 0):
             return None, None
-        cv2.imshow("cropped_rembg", cropped_rembg)
-        cv2.waitKey(1)
+        # cv2.imshow("cropped_rembg", cropped_rembg)
+        # cv2.waitKey(1)
         if w == 0 or h == 0:
             return None, None
-        self.last_coordinates = self.coordinates
-        self.coordinates = np.array([x, y]) + np.array([self.coordinates[0] - self.crop_size[0] // 2, self.coordinates[1] - self.crop_size[1] // 2])
-        self.show_boundingbox(frame, *self.coordinates.astype(np.int32), w, h)
         self.coordinates_array = np.vstack((self.coordinates_array, self.coordinates.reshape(1, 2)))
-        #update the velocity
-        self.velocity = self.coordinates - self.last_coordinates
         self.velocity_array = np.vstack((self.velocity_array, self.velocity.reshape(1, 2)))
-        #create a new kernel
-        self.create_crop(frame, self.coordinates)
-        # return self.coordinates
-        return self.coordinates, max_change
+        return self.coordinates, certainty
 
-    def show_crop(self, frame, x, y):
+    def show_crop(self, frame):
+        x, y = (self.coordinates-self.crop_size//2).astype(np.int32)
         frame_copy = frame.copy()
-        cv2.rectangle(frame_copy, (x, y), (x + self.crop_size, y + self.crop_size), (0, 255, 0), 2)
+        cv2.rectangle(frame_copy, (x, y), (x + self.crop_size[0], y + self.crop_size[1]), (0, 255, 0), 2)
         cv2.imshow("cropped_frame", frame_copy)
         cv2.waitKey(1)
 
@@ -304,13 +310,19 @@ class ParticleRembg:
         cv2.imshow("frame with boundingbox", frame_copy)
         cv2.waitKey(1)
 
-    @staticmethod
-    def find_bounding_box(cropped_rembg):
+
+    def find_bounding_box(self, cropped_rembg):
         # find the bounding box of the object in the cropped frame
         cropped_rembg = cv2.cvtColor(cropped_rembg, cv2.COLOR_BGR2GRAY)
+        cv2.imshow("cropped_rembg", cropped_rembg)
+        cv2.waitKey(1)
         cropped_rembg = cv2.GaussianBlur(cropped_rembg, (5, 5), 0)
-        cropped_rembg = cv2.Canny(cropped_rembg, 50, 150)
-        # cv2.imshow("cropped_rembg", cropped_rembg)
+        cropped_rembg_max = cropped_rembg.max()
+        canny_lower_threshold = max(int(cropped_rembg_max * self.canny_bottom_percent), 10)
+        canny_higher_threshold = min(int(cropped_rembg_max * self.canny_top_percent), 240)
+        print("canny thresholds", canny_lower_threshold, canny_higher_threshold)
+        cropped_rembg = cv2.Canny(cropped_rembg, canny_lower_threshold, canny_higher_threshold)
+        # cv2.imshow("Canny_rembg", cropped_rembg)
         # cv2.waitKey(1)
         # contours, _ = cv2.findContours(cropped_rembg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         # mask = np.zeros(cropped_rembg.shape, np.uint8)
@@ -323,7 +335,7 @@ class ParticleRembg:
         # contours, _ = cv2.findContours(cropped_rembg, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
         contours, _ = cv2.findContours(cropped_rembg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if len(contours) == 0:
-            return None
+            return 4 * [None]
         # find the bounding box of the contour
         c = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(c)
