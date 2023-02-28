@@ -56,8 +56,11 @@ def frame_to_numpy(frame, height, width):
     return img.astype(np.uint8)
 
 
-def particles_mean_std(particles):
-    coordinates = np.zeros((len(particles), 2))
-    for i, particle in enumerate(particles):
-        coordinates[i] = particle.coordinates
-    return np.mean(coordinates, axis=0), np.std(coordinates, axis=0)
+def particles_mean_std(particles_coordinates, mask=None):
+    if mask is not None:
+        particles_coordinates = particles_coordinates[mask]
+    return np.mean(particles_coordinates, axis=0), np.std(particles_coordinates, axis=0)
+
+
+def get_particles_coordinates(particles):
+    return np.array([particle.coordinates for i, particle in enumerate(particles)])

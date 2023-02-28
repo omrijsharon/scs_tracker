@@ -7,7 +7,7 @@ from utils.helper_functions import softmax, distance_between_pixels
 
 
 class Particle:
-    def __init__(self, kernel_size, crop_size, nn_size, p, q, temperature=1, rembg=False):
+    def __init__(self, kernel_size, crop_size, nn_size, p, q, temperature=1, pixel_noise=1, rembg=False):
         self.kernel_size = kernel_size
         self.kernel_ones = np.ones((kernel_size, kernel_size), np.float32)
         self.kernel = None
@@ -27,6 +27,7 @@ class Particle:
         # gaussian kernel
         std = 61
         self.nn_p = np.exp(-((X ** 2 + Y ** 2) / (2 * (std // 2) ** 2))) * (1 / (2 * np.pi * (std // 2) ** 2))
+        self.pixel_noise = int(pixel_noise)
         self.rembg = rembg
 
     def reset(self):
@@ -86,6 +87,8 @@ class Particle:
         #update the coordinates
         self.last_coordinates = self.coordinates
         self.coordinates = np.array(idx) + np.array([x - self.crop_size // 2, y - self.crop_size // 2])
+        # add pixel noise to the coordinates
+        self.coordinates = self.coordinates + np.random.randint(-self.pixel_noise, self.pixel_noise + 1, 2)
         self.coordinates_array = np.vstack((self.coordinates_array, self.coordinates.reshape(1, 2)))
         #update the velocity
         self.velocity = self.coordinates - self.last_coordinates
