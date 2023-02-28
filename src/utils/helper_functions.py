@@ -64,3 +64,10 @@ def particles_mean_std(particles_coordinates, mask=None):
 
 def get_particles_coordinates(particles):
     return np.array([particle.coordinates for i, particle in enumerate(particles)])
+
+
+def get_particles_attr(particles, attr: str, mask=None):
+    kernel_sizes = np.array([getattr(particle, attr) for particle in particles])
+    if mask is not None:
+        kernel_sizes = kernel_sizes[mask]
+    return kernel_sizes

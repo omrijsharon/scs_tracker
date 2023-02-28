@@ -31,6 +31,7 @@ class Particle:
         self.rembg = rembg
 
     def reset(self):
+        self.kernel_ones = np.ones((self.kernel_size, self.kernel_size), np.float32)
         self.kernel = None
         self.last_coordinates = None
         self.coordinates = None

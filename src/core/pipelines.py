@@ -6,7 +6,7 @@ from functools import partial
 from utils.particle import Particle, ParticlesGrid, ParticleRembg
 from utils.orb_tracker import ORB_tracker
 
-from utils.helper_functions import frame_to_numpy, particles_mean_std, get_particles_coordinates
+from utils.helper_functions import frame_to_numpy, particles_mean_std, get_particles_coordinates, get_particles_attr
 
 SMALL_TOP = 160
 SMALL_LEFT = 2019
@@ -20,11 +20,12 @@ youtube_tlwh_small = (160, 2019, 1280, 720)
 youtube_tlwh_large = (80, 1921, 1901, 1135)
 
 mouse_coords = (-1, -1)
-n_particles = 13
-smallest_kernel = 31
+n_particles = 21
+smallest_kernel = 11
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1
 kernel_size = np.ones(n_particles, dtype=np.int32) * smallest_kernel
-crop_size = (kernel_size.max() * 3).astype(int)
+kernel_half_sizes = int((smallest_kernel-1)/2), 20
+crop_size = int((kernel_half_sizes[1]*2+1) * 3)
 crop_size = (crop_size//2) + 1
 nn_size = 3
 particles = []
@@ -71,7 +72,7 @@ def track_mouse_clicked_target_with_rembg(tlwh=None, monitor_number=0):
                 if particles[0].coordinates is not None:
                     for i, particle in enumerate(particles):
                         # if particle coordinates are out of image, delete particle
-                        if particle.coordinates[0] < img_gray.shape[1]*0.1 or particle.coordinates[0] >= img_gray.shape[1]*0.9 or particle.coordinates[1] < img_gray.shape[0] * 0.1 or particle.coordinates[1] >= 0.9 * img_gray.shape[0]:
+                        if particle.coordinates[0] < img_gray.shape[1]*0.05 or particle.coordinates[0] >= img_gray.shape[1]*0.95 or particle.coordinates[1] < img_gray.shape[0] * 0.1 or particle.coordinates[1] >= 0.9 * img_gray.shape[0]:
                             particles2delete.append(i)
                             continue
                         xy, certainty = particle.update(img_gray)
@@ -79,7 +80,7 @@ def track_mouse_clicked_target_with_rembg(tlwh=None, monitor_number=0):
                             particles2delete.append(i)
                             continue
                         xy_array[i] = xy
-                        if certainty * 100 > 1.0:
+                        if certainty * 100 > 0.1:
                             cv2.putText(img, "{:.1f}".format(100*certainty), (xy[0], xy[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                             # draw particle bbox params:
                             x, y, w, h = particle.bbox_params
@@ -119,13 +120,15 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
             mouse_coords = (x, y)
             if len(particles) > 0:
                 for i, particle in enumerate(particles):
+                    particle.kernel_size = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
                     particle.reset()
                     xy = tuple(np.array(mouse_coords) + np.random.randint(-crop_size//2, crop_size//2, 2))
                     particle.create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
             else:
-                for krnl_sz in kernel_size:
+                for i in range(n_particles):
                     xy = tuple(np.array(mouse_coords) + 1 * np.random.randint(-crop_size//4, crop_size//4, 2))
-                    particles.extend([Particle(krnl_sz, crop_size, nn_size, p=3, q=1e-9, temperature=0.05, pixel_noise=1)])
+                    krnl_sz = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
+                    particles.extend([Particle(krnl_sz, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, pixel_noise=0)])
                     particles[-1].reset()
                     particles[-1].create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
 
@@ -143,14 +146,32 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
         }
         cv2.namedWindow('frame')
         cv2.setMouseCallback('frame', mouse_callback)
-        rect_debug = True
+        rect_debug = False
         mask = np.ones((n_particles,), dtype=bool)
         max_chances = np.zeros((n_particles,))
-        particle_max_chance_threshold = 0.001 # under this value particle will be replaced
+        particle_max_chance_threshold = 0.01 # under this value particle will be replaced
+        prev_frame = np.zeros((tlwh[3], tlwh[2]))
+        # img_gray2show = np.zeros((tlwh[3], tlwh[2]), dtype=np.uint8)
+        # frame_diff_2show = np.zeros((tlwh[3], tlwh[2]))
         while True:
             img_byte = sct.grab(monitor)
             img = frame_to_numpy(img_byte, tlwh[3], tlwh[2])
             img_gray = (cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2
+            frames_diff = (img_gray - prev_frame)/2
+            prev_frame = img_gray
+            # img_gray = frames_diff
+            # frame_diff_2show = ((frames_diff + 1) / 2 * 255).astype(np.uint8)
+            # canny = cv2.Canny(frame_diff_2show, 150, 220).astype(np.uint8)
+            # canny = cv2.dilate(canny, np.ones((3, 3), dtype=np.uint8), iterations=3)
+            # canny = cv2.erode(canny, np.ones((3, 3), dtype=np.uint8), iterations=5)
+            # contours, _ = cv2.findContours(canny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # img_gray2show[:, :] = (1 - canny/255).astype(np.uint8)
+            # # # merge img_gray2show and img into 1 frame where img_gray2show blacks are alpha-blended with img
+            # img *= np.transpose(np.tile(img_gray2show, (3,1,1)), (1, 2, 0))
+            # if len(contours) > 0:
+            #     c = max(contours, key=cv2.contourArea)
+            #     x, y, w, h = cv2.boundingRect(c)
+            #     cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
             if len(particles) > 0:
                 # cv2.imshow("kernel", (255 * kernel/kernel.max()).astype(np.uint8))
                 if particles[0].coordinates is not None:
@@ -177,12 +198,17 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                     # for each particle, check if its distance from the mean is more than 2 times the std:
                     # print(np.sqrt(np.sum(coordinates_std ** 2)))
                     particles_distances_from_mean = np.sqrt(np.sum((particles_coordinates - coordinates_mean) ** 2, axis=1))
-                    mask[particles_distances_from_mean > min(1.8 * np.sqrt(np.sum(coordinates_std ** 2)), 2 * crop_size)] = False
+                    mask[particles_distances_from_mean > min(1.6 * np.sqrt(np.sum(coordinates_std ** 2)), 2 * crop_size)] = False
                     coordinates_mean, coordinates_std = particles_mean_std(particles_coordinates, mask=mask)
                     num_particles_to_delete = sum(1-mask)
                     if num_particles_to_delete > 0 and num_particles_to_delete < n_particles:
+                        kernel_sizes = get_particles_attr(particles, "kernel_size", mask=mask)
+                        kernel_sizes_mean = np.mean(kernel_sizes)
+                        kernel_sizes_std = np.std(kernel_sizes)
                         for i in np.argwhere(mask==False).flatten():
                             xy = tuple((coordinates_mean + 1.0 * np.random.randint(-crop_size // 2, crop_size // 2, 2)).astype(np.int32))
+                            # particle.kernel_size = np.random.randint(low=kernel_half_sizes[0], high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
+                            particle.kernel_size = np.clip(int(np.random.normal(kernel_sizes_mean, 0.1*kernel_sizes_std)), a_min=kernel_half_sizes[0]*2+1, a_max=kernel_half_sizes[1]*2+1)
                             particles[i].reset()
                             particles[i].create_kernel(img_gray, xy)
                     elif num_particles_to_delete == n_particles:
