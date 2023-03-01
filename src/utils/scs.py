@@ -17,6 +17,6 @@ def create_kernel(frame, xy, kernel_size):
 def scs_filter(frame, kernel, ones_kernel, p=3, q=1e-6):
     # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     norm_frame = np.sqrt(cv2.filter2D(frame.astype(np.float32)**2, cv2.CV_32F, ones_kernel))
-    filted_frame = cv2.filter2D(frame, cv2.CV_32F, kernel)
-    filted_scs_frame = np.sign(filted_frame) * (np.abs(filted_frame) / (norm_frame + q)) ** p
-    return filted_scs_frame
+    filtered_frame = cv2.filter2D(frame, cv2.CV_32F, kernel)
+    filtered_scs_frame = np.sign(filtered_frame) * (np.abs(filtered_frame) / (norm_frame + q)) ** p
+    return filtered_scs_frame

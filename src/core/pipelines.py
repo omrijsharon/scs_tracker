@@ -7,6 +7,7 @@ from utils.particle import Particle, ParticlesGrid, ParticleRembg
 from utils.orb_tracker import ORB_tracker
 
 from utils.helper_functions import frame_to_numpy, particles_mean_std, get_particles_coordinates, get_particles_attr
+from utils.frame_diff_director import Director
 
 SMALL_TOP = 160
 SMALL_LEFT = 2019
@@ -20,7 +21,7 @@ youtube_tlwh_small = (160, 2019, 1280, 720)
 youtube_tlwh_large = (80, 1921, 1901, 1135)
 
 mouse_coords = (-1, -1)
-n_particles = 21
+n_particles = 11
 smallest_kernel = 11
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1
 kernel_size = np.ones(n_particles, dtype=np.int32) * smallest_kernel
@@ -28,6 +29,8 @@ kernel_half_sizes = int((smallest_kernel-1)/2), 20
 crop_size = int((kernel_half_sizes[1]*2+1) * 3)
 crop_size = (crop_size//2) + 1
 nn_size = 3
+p = 3
+q = 1e-9
 particles = []
 # particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
 # orb_tracker = ORB_tracker(n_features=1000, top_k_features=100, init_crop_size=201)
@@ -128,7 +131,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                 for i in range(n_particles):
                     xy = tuple(np.array(mouse_coords) + 1 * np.random.randint(-crop_size//4, crop_size//4, 2))
                     krnl_sz = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
-                    particles.extend([Particle(krnl_sz, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, pixel_noise=0)])
+                    particles.extend([Particle(krnl_sz, crop_size, nn_size, p=p, q=q, temperature=0.1, pixel_noise=0)])
                     particles[-1].reset()
                     particles[-1].create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
 
@@ -149,16 +152,41 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
         rect_debug = False
         mask = np.ones((n_particles,), dtype=bool)
         max_chances = np.zeros((n_particles,))
-        particle_max_chance_threshold = 0.01 # under this value particle will be replaced
+        particle_max_chance_threshold = 0.24 # under this value particle will be replaced
         prev_frame = np.zeros((tlwh[3], tlwh[2]))
         # img_gray2show = np.zeros((tlwh[3], tlwh[2]), dtype=np.uint8)
         # frame_diff_2show = np.zeros((tlwh[3], tlwh[2]))
+        director = Director(5, tlwh[2], tlwh[3], p, q, gradient_func="sin")
+        particles_ensemble_velocity = np.zeros((2,), dtype=np.float32)
+        particles_ensemble_prev_mean = np.zeros((2,), dtype=np.float32)
         while True:
             img_byte = sct.grab(monitor)
             img = frame_to_numpy(img_byte, tlwh[3], tlwh[2])
-            img_gray = (cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2
-            frames_diff = (img_gray - prev_frame)/2
-            prev_frame = img_gray
+            img_gray = (cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5).astype(np.float32) * 2.0
+            # direction, magnitude = director.calculate(img_gray)
+            # magnitude /= np.max(magnitude)
+            # direction = magnitude * np.array([np.cos(direction), np.sin(direction)])
+            # # dilate magnitude
+            # magnitude = cv2.Canny((magnitude * 255).astype(np.uint8), 150, 200)
+            # magnitude = cv2.dilate(magnitude, np.ones((3, 3), dtype=np.uint8), iterations=2)
+            # magnitude = cv2.erode(magnitude, np.ones((3, 3), dtype=np.uint8), iterations=1)
+            # contours, _ = cv2.findContours(magnitude, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # contours_largest_area_idx = np.argsort(list(map(cv2.contourArea, contours)))[::-1]
+            # magnitude = cv2.cvtColor(magnitude, cv2.COLOR_GRAY2BGR)
+            # # draw contour of the top 5 largest area contours
+            # for i in contours_largest_area_idx[:10]:
+            #     cv2.drawContours(magnitude, contours, i, (0, 0, 255), 2)
+            #
+            # # draw bounding box around the top 5 largest area contours
+            # for i in contours_largest_area_idx[:10]:
+            #     x, y, w, h = cv2.boundingRect(contours[i])
+            #     cv2.rectangle(magnitude, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+
+            # hsv = director.hsv_projection(direction, magnitude)
+            # cv2.imshow('hsv', cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
+            # cv2.imshow("magnitude", (magnitude*255).astype(np.uint8))
+            # img_gray = hsv
             # img_gray = frames_diff
             # frame_diff_2show = ((frames_diff + 1) / 2 * 255).astype(np.uint8)
             # canny = cv2.Canny(frame_diff_2show, 150, 220).astype(np.uint8)
@@ -198,17 +226,22 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                     # for each particle, check if its distance from the mean is more than 2 times the std:
                     # print(np.sqrt(np.sum(coordinates_std ** 2)))
                     particles_distances_from_mean = np.sqrt(np.sum((particles_coordinates - coordinates_mean) ** 2, axis=1))
-                    mask[particles_distances_from_mean > min(1.6 * np.sqrt(np.sum(coordinates_std ** 2)), 2 * crop_size)] = False
+                    mask[particles_distances_from_mean > min(1.7 * np.sqrt(np.sum(coordinates_std ** 2)), 2 * crop_size)] = False
                     coordinates_mean, coordinates_std = particles_mean_std(particles_coordinates, mask=mask)
+                    if particles_ensemble_prev_mean[0] != 0.0:
+                        particles_ensemble_velocity = coordinates_mean - particles_ensemble_prev_mean
+                    particles_ensemble_prev_mean = coordinates_mean
+
                     num_particles_to_delete = sum(1-mask)
                     if num_particles_to_delete > 0 and num_particles_to_delete < n_particles:
                         kernel_sizes = get_particles_attr(particles, "kernel_size", mask=mask)
                         kernel_sizes_mean = np.mean(kernel_sizes)
                         kernel_sizes_std = np.std(kernel_sizes)
+                        print("kernel_sizes_mean: {}, kernel_sizes_std: {}".format(kernel_sizes_mean, kernel_sizes_std))
                         for i in np.argwhere(mask==False).flatten():
-                            xy = tuple((coordinates_mean + 1.0 * np.random.randint(-crop_size // 2, crop_size // 2, 2)).astype(np.int32))
+                            xy = tuple((coordinates_mean + particles_ensemble_velocity + 1.0 * np.random.randint(-crop_size // 2, crop_size // 2, 2)).astype(np.int32))
                             # particle.kernel_size = np.random.randint(low=kernel_half_sizes[0], high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
-                            particle.kernel_size = np.clip(int(np.random.normal(kernel_sizes_mean, 0.1*kernel_sizes_std)), a_min=kernel_half_sizes[0]*2+1, a_max=kernel_half_sizes[1]*2+1)
+                            particle.kernel_size = np.clip(int(np.random.normal(kernel_sizes_mean, 1.0*kernel_sizes_std)), a_min=kernel_half_sizes[0]*2+1, a_max=kernel_half_sizes[1]*2+1)
                             particles[i].reset()
                             particles[i].create_kernel(img_gray, xy)
                     elif num_particles_to_delete == n_particles:
