@@ -56,18 +56,21 @@ def frame_to_numpy(frame, height, width):
     return img.astype(np.uint8)
 
 
-def particles_mean_std(particles_coordinates, mask=None):
+def particles_mean_std(particles_coordinates, weights=None, mask=None):
+    assert not (weights is not None and mask is not None), "weights and mask cannot be both None. If you want to use mask and weights, set weights where mask is false to 0.0"
+    if weights is not None:
+        assert len(weights) == len(particles_coordinates), "weights and particles_coordinates must have the same length"
+        assert np.isclose(np.sum(weights), 1), "weights must sum to 1"
+        particles_coordinates = particles_coordinates * weights[:, None]
+        mean = np.sum(particles_coordinates, axis=0)
+        std = np.sqrt(np.sum(np.square(particles_coordinates - mean) * weights.reshape(-1, 1), axis=0))
+        return mean, std
     if mask is not None:
         particles_coordinates = particles_coordinates[mask]
     return np.mean(particles_coordinates, axis=0), np.std(particles_coordinates, axis=0)
 
-
-def get_particles_coordinates(particles):
-    return np.array([particle.coordinates for i, particle in enumerate(particles)])
-
-
 def get_particles_attr(particles, attr: str, mask=None):
-    kernel_sizes = np.array([getattr(particle, attr) for particle in particles])
+    values = np.array([getattr(particle, attr) for particle in particles])
     if mask is not None:
-        kernel_sizes = kernel_sizes[mask]
-    return kernel_sizes
+        values = values[mask]
+    return values

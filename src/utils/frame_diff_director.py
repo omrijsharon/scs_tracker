@@ -48,8 +48,8 @@ class Director:
         # frame must be between -1 and 1 for the SCS filter to work properly
         assert frame.max() <= 1 and frame.min() >= -1, "frame must be between -1 and 1"
         # calculate the difference between the current frame and the previous frame
-        diff = (frame - self.previous_frame) / (2 * self.kernel_size)
-        # diff = frame / self.kernel_size
+        # diff = (frame - self.previous_frame) / (2 * self.kernel_size)
+        diff = frame / self.kernel_size
         # diff /= np.prod(diff.shape)
         #filter the difference image with ones_kernel:
         # norm_frame = np.sqrt(cv2.filter2D(frame ** 2, cv2.CV_32F, self.ones_kernel))
@@ -63,10 +63,10 @@ class Director:
         # calculate the direction of the movement
         # direction = np.arctan2(np.sin(angle), np.cos(angle))
         # update the previous frame
-        self.previous_frame *= 0
+        self.previous_frame = 0
         self.previous_frame += frame
-        self.filtered_frame *= 0
-        self.filtered_scs_frame *= 0
+        self.filtered_frame = 0
+        self.filtered_scs_frame = 0
         return angle, magnitude
 
     def hsv_projection(self, angle, magnitude):
