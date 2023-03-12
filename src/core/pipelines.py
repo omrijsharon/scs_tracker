@@ -19,19 +19,23 @@ LARGE_WIDTH = 1901
 LARGE_HEIGHT = 1135
 youtube_tlwh_small = (160, 2019, 1280, 720)
 youtube_tlwh_large = (80, 1921, 1901, 1135)
+uncrashed720p = (700, 1280, 1280, 720)
 
 mouse_coords = (-1, -1)
-n_particles = 21
-smallest_kernel = 11
+n_particles = 11
+smallest_kernel = 7
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1
 kernel_size = np.ones(n_particles, dtype=np.int32) * smallest_kernel
 kernel_half_sizes = int((smallest_kernel-1)/2), 25
-crop_size = int((kernel_half_sizes[1]*2+1) * 1.2)
+crop_size = int((kernel_half_sizes[1]*2+1) * 1.6)
 crop_size = (crop_size//2) + 1
 nn_size = 3
 p = 3
 q = 1e-9
 particles = []
+is_particles = False
+
+
 # particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
 # orb_tracker = ORB_tracker(n_features=1000, top_k_features=100, init_crop_size=201)
 
@@ -115,10 +119,11 @@ def track_mouse_clicked_target_with_rembg(tlwh=None, monitor_number=0):
 
 
 def track_mouse_clicked_target(tlwh=None, monitor_number=0):
-    global mouse_coords, particles, n_particles
+    global mouse_coords, particles, n_particles, is_particles
 
     def mouse_callback(event, x, y, flags, param):
-        global mouse_coords, particles, n_particles
+        global mouse_coords, particles, n_particles, is_particles
+
         if event == cv2.EVENT_LBUTTONUP:
             mouse_coords = (x, y)
             if len(particles) > 0:
@@ -127,6 +132,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                     particle.reset()
                     xy = tuple(np.array(mouse_coords) + np.random.randint(-crop_size//4, crop_size//4, 2))
                     particle.create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
+                    is_particles = True
             else:
                 for i in range(n_particles):
                     xy = tuple(np.array(mouse_coords) + 1 * np.random.randint(-crop_size//4, crop_size//4, 2))
@@ -134,6 +140,8 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                     particles.extend([Particle(krnl_sz, crop_size, nn_size, p=p, q=q, temperature=0.1, pixel_noise=0)])
                     particles[-1].reset()
                     particles[-1].create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
+                    is_particles = True
+
 
     if tlwh is None:
         tlwh = (SMALL_TOP, SMALL_LEFT, SMALL_WIDTH, SMALL_HEIGHT)
@@ -161,6 +169,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
         particles_ensemble_prev_mean = np.zeros((2,), dtype=np.float32)
         temperature = 0.1
         top_bbox = 10
+
         while True:
             img_byte = sct.grab(monitor)
             img = frame_to_numpy(img_byte, tlwh[3], tlwh[2])
@@ -185,7 +194,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
             #     c = max(contours, key=cv2.contourArea)
             #     x, y, w, h = cv2.boundingRect(c)
             #     cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            if len(particles) > 0:
+            if is_particles:
                 # cv2.imshow("kernel", (255 * kernel/kernel.max()).astype(np.uint8))
                 if particles[0].coordinates is not None:
                     for i, particle in enumerate(particles):
@@ -198,6 +207,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                         if xy is None:
                             mask[i] = False
                             continue
+                        print("!!! max_chances len:", len(max_chances), "len particles:", len(particles))
                         max_chances[i] = max_chance
                         if rect_debug:
                             cv2.putText(img, "{:.1f}".format(100*max_chance), (xy[0], xy[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
@@ -211,7 +221,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                     # for each particle, check if its distance from the mean is more than 2 times the std:
                     # print(np.sqrt(np.sum(coordinates_std ** 2)))
                     particles_distances_from_mean = np.sqrt(np.sum((particles_coordinates - coordinates_mean) ** 2, axis=1))
-                    mask[particles_distances_from_mean > min(2.1 * np.sqrt(np.sum(coordinates_std ** 2)), 2 * crop_size)] = False
+                    mask[particles_distances_from_mean > min(2.5 * np.sqrt(np.sum(coordinates_std ** 2)), 2 * crop_size)] = False
                     coordinates_mean, coordinates_std = particles_mean_std(particles_coordinates, mask=mask)
                     # max_chances[1 - mask] = -np.inf
                     # weights = softmax(max_chances/temperature)
@@ -233,9 +243,10 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                             particles[i].reset()
                             particles[i].create_kernel(img_gray, xy)
                     elif num_particles_to_delete == n_particles:
-                        raise Exception("All particles deleted, object lost")
-                    cv2.circle(img, tuple(coordinates_mean.astype(np.int32)),
-                               np.sqrt(2 * np.sum(coordinates_std ** 2)).astype(np.int32), (0, 0, 255), 2)
+                        is_particles = False
+                    if is_particles:
+                        cv2.circle(img, tuple(coordinates_mean.astype(np.int32)),
+                                   np.sqrt(2 * np.sum(coordinates_std ** 2)).astype(np.int32), (0, 0, 255), 2)
                     mask += True
             cv2.imshow('frame', img)
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -322,6 +333,6 @@ def track_grid(tlwh=None, monitor_number=0):
 
 if __name__ == '__main__':
     # track_mouse_clicked_target_with_rembg(youtube_tlwh_small)
-    track_mouse_clicked_target(youtube_tlwh_small)
+    track_mouse_clicked_target(uncrashed720p)
     # track_grid(youtube_tlwh_small)
     # track_mouse_clicked_target_ORB(youtube_tlwh_large)
