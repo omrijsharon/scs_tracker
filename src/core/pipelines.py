@@ -22,16 +22,17 @@ youtube_tlwh_large = (80, 1921, 1901, 1135)
 uncrashed720p = (700, 1280, 1280, 720)
 
 mouse_coords = (-1, -1)
-n_particles = 11
-smallest_kernel = 7
+n_particles = 5
+smallest_kernel = 21
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1
 kernel_size = np.ones(n_particles, dtype=np.int32) * smallest_kernel
 kernel_half_sizes = int((smallest_kernel-1)/2), 25
-crop_size = int((kernel_half_sizes[1]*2+1) * 1.6)
+crop_size = int((kernel_half_sizes[1]*2+1) * 3)
 crop_size = (crop_size//2) + 1
 nn_size = 3
 p = 3
 q = 1e-9
+max_velocity = 12
 particles = []
 is_particles = False
 
@@ -130,14 +131,14 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                 for i, particle in enumerate(particles):
                     particle.kernel_size = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
                     particle.reset()
-                    xy = tuple(np.array(mouse_coords) + np.random.randint(-crop_size//4, crop_size//4, 2))
+                    xy = tuple(np.array(mouse_coords) + np.random.randint(-crop_size//8, crop_size//8, 2))
                     particle.create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
                     is_particles = True
             else:
                 for i in range(n_particles):
-                    xy = tuple(np.array(mouse_coords) + 1 * np.random.randint(-crop_size//4, crop_size//4, 2))
+                    xy = tuple(np.array(mouse_coords) + 1 * np.random.randint(-crop_size//8, crop_size//8, 2))
                     krnl_sz = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
-                    particles.extend([Particle(krnl_sz, crop_size, nn_size, p=p, q=q, temperature=0.1, pixel_noise=0)])
+                    particles.extend([Particle(krnl_sz, crop_size, nn_size, p=p, q=q, temperature=0.05, pixel_noise=0, max_velocity=max_velocity)])
                     particles[-1].reset()
                     particles[-1].create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
                     is_particles = True
@@ -207,7 +208,6 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                         if xy is None:
                             mask[i] = False
                             continue
-                        print("!!! max_chances len:", len(max_chances), "len particles:", len(particles))
                         max_chances[i] = max_chance
                         if rect_debug:
                             cv2.putText(img, "{:.1f}".format(100*max_chance), (xy[0], xy[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
@@ -333,6 +333,6 @@ def track_grid(tlwh=None, monitor_number=0):
 
 if __name__ == '__main__':
     # track_mouse_clicked_target_with_rembg(youtube_tlwh_small)
-    track_mouse_clicked_target(uncrashed720p)
+    track_mouse_clicked_target(youtube_tlwh_small)
     # track_grid(youtube_tlwh_small)
     # track_mouse_clicked_target_ORB(youtube_tlwh_large)
