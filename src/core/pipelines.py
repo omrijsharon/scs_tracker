@@ -35,10 +35,10 @@ p = 3
 q = 1e-9
 max_velocity = 7
 particles = []
-particle_max_chance_threshold = 0.05  # under this value particle will be replaced
+particle_max_chance_threshold = 0.001  # under this value particle will be replaced
 is_random_spread = False
 is_particles = False
-rect_debug = True
+rect_debug = False
 
 
 # particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
@@ -238,7 +238,7 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                         kernel_sizes = get_particles_attr(particles, "kernel_size", mask=mask)
                         kernel_sizes_mean = np.mean(kernel_sizes)
                         kernel_sizes_std = np.std(kernel_sizes)
-                        print("kernel_sizes_mean: {}, kernel_sizes_std: {}".format(kernel_sizes_mean, kernel_sizes_std))
+                        # print("kernel_sizes_mean: {}, kernel_sizes_std: {}".format(kernel_sizes_mean, kernel_sizes_std))
                         for i in np.argwhere(mask==False).flatten():
                             xy = tuple((coordinates_mean + particles_ensemble_velocity + 1.2 * np.random.randint(-crop_size // 2, crop_size // 2, 2)).astype(np.int32))
                             # particle.kernel_size = np.random.randint(low=kernel_half_sizes[0], high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
