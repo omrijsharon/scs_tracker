@@ -14,7 +14,7 @@ SMALL_LEFT = 2019
 SMALL_WIDTH = 1280
 SMALL_HEIGHT = 720
 LARGE_TOP = 80
-LARGE_LEFT = 1921
+LARGE_LEFT = 19213
 LARGE_WIDTH = 1901
 LARGE_HEIGHT = 1135
 youtube_tlwh_small = (160, 2019, 1280, 720)
@@ -22,19 +22,23 @@ youtube_tlwh_large = (80, 1921, 1901, 1135)
 uncrashed720p = (700, 1280, 1280, 720)
 
 mouse_coords = (-1, -1)
-n_particles = 5
-smallest_kernel = 21
+n_particles = 11
+smallest_kernel = 15
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1
 kernel_size = np.ones(n_particles, dtype=np.int32) * smallest_kernel
-kernel_half_sizes = int((smallest_kernel-1)/2), 25
-crop_size = int((kernel_half_sizes[1]*2+1) * 3)
+kernel_half_sizes = int((smallest_kernel-1)/2), 17
+crop_size = int((kernel_half_sizes[1]*2+1) * 7)
 crop_size = (crop_size//2) + 1
+random_spread_inv = 128
 nn_size = 3
 p = 3
 q = 1e-9
-max_velocity = 12
+max_velocity = 7
 particles = []
+particle_max_chance_threshold = 0.05  # under this value particle will be replaced
+is_random_spread = False
 is_particles = False
+rect_debug = True
 
 
 # particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
@@ -88,7 +92,7 @@ def track_mouse_clicked_target_with_rembg(tlwh=None, monitor_number=0):
                             particles2delete.append(i)
                             continue
                         xy_array[i] = xy
-                        if certainty * 100 > 0.1:
+                        if certainty * 100 > 0.4:
                             cv2.putText(img, "{:.1f}".format(100*certainty), (xy[0], xy[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                             # draw particle bbox params:
                             x, y, w, h = particle.bbox_params
@@ -131,12 +135,12 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                 for i, particle in enumerate(particles):
                     particle.kernel_size = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
                     particle.reset()
-                    xy = tuple(np.array(mouse_coords) + np.random.randint(-crop_size//8, crop_size//8, 2))
+                    xy = tuple(np.array(mouse_coords) + is_random_spread*np.random.randint(-crop_size//random_spread_inv, crop_size//random_spread_inv, 2))
                     particle.create_kernel((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) / 255 - 0.5) * 2, xy)
                     is_particles = True
             else:
                 for i in range(n_particles):
-                    xy = tuple(np.array(mouse_coords) + 1 * np.random.randint(-crop_size//8, crop_size//8, 2))
+                    xy = tuple(np.array(mouse_coords) + is_random_spread*np.random.randint(-crop_size//random_spread_inv, crop_size//random_spread_inv, 2))
                     krnl_sz = np.random.randint(low=kernel_half_sizes[0],high=kernel_half_sizes[1], size=(1,)).item() * 2 + 1
                     particles.extend([Particle(krnl_sz, crop_size, nn_size, p=p, q=q, temperature=0.05, pixel_noise=0, max_velocity=max_velocity)])
                     particles[-1].reset()
@@ -158,10 +162,8 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
         }
         cv2.namedWindow('frame')
         cv2.setMouseCallback('frame', mouse_callback)
-        rect_debug = True
         mask = np.ones((n_particles,), dtype=bool)
         max_chances = np.zeros((n_particles,))
-        particle_max_chance_threshold = 0.01 # under this value particle will be replaced
         prev_frame = np.zeros((tlwh[3], tlwh[2]))
         # img_gray2show = np.zeros((tlwh[3], tlwh[2]), dtype=np.uint8)
         # frame_diff_2show = np.zeros((tlwh[3], tlwh[2]))
@@ -215,7 +217,8 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                             cv2.rectangle(img, (xy[0] - particle.kernel_size//2, xy[1] - particle.kernel_size//2), (xy[0] + particle.kernel_size//2, xy[1] + particle.kernel_size//2), (0, 255 * max_chance, 255 * max_chance), 2)
                             # draw rectangle with center at xy+particle.velocity and size particle.crop_size:
                             cv2.rectangle(img, (int(xy[0]+particle.velocity[0] - particle.crop_size // 2), int(xy[1]+particle.velocity[1] - particle.crop_size // 2)), (int(xy[0]+particle.velocity[0] + particle.crop_size // 2), int(xy[1]+particle.velocity[1] + particle.crop_size // 2)), (0, 127, 0), 2)
-                    mask[np.argwhere(max_chances < max_chances * particle_max_chance_threshold)] = False
+                    # mask[np.argwhere(max_chances < max_chances * particle_max_chance_threshold)] = False # Old but good?
+                    mask[np.argwhere(max_chances < particle_max_chance_threshold)] = False
                     particles_coordinates = get_particles_attr(particles, "coordinates")
                     coordinates_mean, coordinates_std = particles_mean_std(particles_coordinates)
                     # for each particle, check if its distance from the mean is more than 2 times the std:
@@ -245,6 +248,8 @@ def track_mouse_clicked_target(tlwh=None, monitor_number=0):
                     elif num_particles_to_delete == n_particles:
                         is_particles = False
                     if is_particles:
+                        # draw a cross at the mean of the particles
+                        cv2.drawMarker(img, tuple(coordinates_mean.astype(np.int32)), (0, 0, 255), cv2.MARKER_CROSS, 20, 2)
                         cv2.circle(img, tuple(coordinates_mean.astype(np.int32)),
                                    np.sqrt(2 * np.sum(coordinates_std ** 2)).astype(np.int32), (0, 0, 255), 2)
                     mask += True
