@@ -1,23 +1,39 @@
 import numpy as np
 import cv2 as cv
+from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix
 from sklearn.neighbors import NearestNeighbors
 
 import utils.screen_capture as sc
 
-n_neighbors = 2
+# path =r'C:\Users\omri_\OneDrive\Documents\repos\gyroflow\resources\camera_presets\GoPro\GoPro_HERO11 Black Mini_Wide_16by9.json'
+path =r'C:\Users\omri_\OneDrive\Documents\repos\gyroflow\resources\camera_presets\GoPro\GoPro_HERO9 Black_Wide_16by9.json'
+camera_settings = json_reader(path)
+intrinsic_matrix = np.array(camera_settings['fisheye_params']['camera_matrix'])
+calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, height)
+hfov = 120
+max_disparity = 47
+min_disparity = 0
+n_neighbors = 10
+min_n_matches = 150
 max_neighbor_distance = 8
 is_draw_lines = False
 is_draw_keypoints = True
+is_grid = True
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
 img = cap.capture()
+v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / img.shape[1]))
+# K = scale_intrinsic_matrix(intrinsic_matrix, calib_resolution, img.shape[:2])
+K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
+focal = K[0, 0]
+pp = (K[0, 2], K[1, 2])
+p = 1
+# define the size of the grid
+n_grid_cells = 4
+grid_size = (n_grid_cells, n_grid_cells)
+
 cv.namedWindow('ORB Detection Test', cv.WINDOW_NORMAL)
 
 N = 5000
-# create rainbow color palette with N colors:
-# palette_prev = np.uint8([[[i * 255 / N, 255, 255] for i in range(N)]])[0]
-#random palette
-palette_prev = np.random.randint(0, 255, (N, 3)).astype(np.uint8)
-palette = np.uint8([[[i * 255 / N, 255, 255] for i in range(N)]])[0]
 
 def f(x=None):
     return
@@ -29,7 +45,7 @@ cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
 
 # Create BFMatcher object
-bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
 
 # FLANN parameters for ORB
 FLANN_INDEX_LSH = 6
@@ -43,40 +59,141 @@ flann = cv.FlannBasedMatcher(index_params, search_params)
 
 # Initialize variables for keypoints and descriptors
 prev_kp, prev_des = None, None
+velocity_dir, prev_velocity_dir = None, None
+matches = None
 
 while True:
     img = cap.capture()
+    height, width = img.shape[:2]
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    # divide the image into grid
+    cell_width = width // grid_size[0]
+    cell_height = height // grid_size[1]
 
     nfeatures = cv.getTrackbarPos('Max Features', 'ORB Detection Test')
+    nfeatures = 10 if nfeatures == 0 else nfeatures
     scaleFactor = cv.getTrackbarPos('Scale Factor (x10)', 'ORB Detection Test') / 10.0
     nlevels = cv.getTrackbarPos('Levels', 'ORB Detection Test')
     WTA_K = cv.getTrackbarPos('WTA_K (2 or 4)', 'ORB Detection Test')
     WTA_K = 2 if WTA_K == 2 else 4
 
     # create ORB object and compute keypoints and descriptors
-    orb = cv.ORB_create(nfeatures=nfeatures, scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
-    kp, des = orb.detectAndCompute(gray, None)
+    if not is_grid:
+        orb = cv.ORB_create(nfeatures=nfeatures, scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
+        kp, des = orb.detectAndCompute(gray, None)
+    else:
+        orb = cv.ORB_create(nfeatures=nfeatures//np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
+        kp = []
+        des = []
+        for i in range(grid_size[0]):
+            for j in range(grid_size[1]):
+                # Compute keypoints and descriptors for each cell
+                cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
+                cell_kp, cell_des = orb.detectAndCompute(cell, None)
 
+                # Adjust the keypoint positions
+                for k in cell_kp:
+                    k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
+                if len(cell_kp) > 0:
+                    kp.extend(cell_kp)
+                    des.extend(cell_des)
+
+        if len(des) > 0:
+            des = np.vstack(des)
     if prev_kp is not None and prev_des is not None:
-        # matches = bf.match(prev_des, des)
-        matches = flann.match(prev_des, des)
-        print(len(matches))
-        # for match in matches:
-        #     prev_des_index = match.queryIdx
-        #     des_index = match.trainIdx
-        #     img = cv.drawKeypoints(img, [kp[des_index]], None, color=tuple(palette_prev[prev_des_index].tolist()))
-        #     # change palette color according to pallette_prev:
-        #     palette[des_index] = palette_prev[prev_des_index]
-        # palette_prev = palette.copy()
+        matches = bf.match(prev_des, des)
+        # matches = flann.match(prev_des, des)
+        # matches = [m for m in matches if max_disparity > abs(prev_kp[m.queryIdx].pt[0] - kp[m.trainIdx].pt[0]) > min_disparity]
+        matches = [m for m in matches if min_disparity < m.distance < max_disparity]
+        # matches = bf.knnMatch(prev_des, des, k=n_neighbors)
+        # matches = flann.knnMatch(prev_des, des, k=n_neighbors)
+        # best_matches = []
+        # for m in matches:
+        #     valid_matches = [match for match in m if min_disparity <= match.distance <= max_disparity]
+        #     if valid_matches:
+        #         best_matches.append(min(valid_matches, key=lambda match: match.distance))
+        # matches = best_matches
 
+        # create a new kp list and des list for the matched keypoints
+        # matches = flann.match(prev_des, des)
+        # matches = sorted(matches, key=lambda x: x.distance)[:100]
+        # exclude matches with large disparity and also matches with extremely close disparity
+        # matches = [m for m in matches if min_disparity < abs(prev_kp[m.queryIdx].pt[0] - kp[m.trainIdx].pt[0]) < max_disparity]
+        # Extract the matched keypoints
+        pts1 = np.float32([prev_kp[m.queryIdx].pt for m in matches]).reshape(-1, 2).astype(np.float64)
+        pts2 = np.float32([kp[m.trainIdx].pt for m in matches]).reshape(-1, 2).astype(np.float64)
+
+        # Compute the essential matrix using the RANSAC algorithm
+        if len(matches) > min_n_matches:
+            # R = np.eye(3)
+            # t = np.zeros((3, 1))
+
+            # find essential matrix with 8-point algorithm
+            # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.FM_8POINT)
+            E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.RANSAC, 0.99999999, 1.0, None)
+            # Optionally, filter matches using the computed fundamental matrix
+            pts1 = pts1[mask.ravel() == 1]
+            pts2 = pts2[mask.ravel() == 1]
+
+            if len(pts1) > 0:
+                _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+                # _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+            print(t.flatten())
+            # t = np.array([[1, 0, 1]])
+            # Compute the fundamental matrix using the normalized 8-point algorithm
+            # _, mask = cv.findFundamentalMat(pts1, pts2, cv.FM_RANSAC)
+            # F, mask = cv.findFundamentalMat(pts1, pts2, cv.FM_8POINT)
+
+            # Project the direction vector to the image plane
+            # t = t / np.linalg.norm(t)
+            velocity_dir = R.dot(t.reshape(3, 1))
+            if prev_velocity_dir is None:
+                prev_velocity_dir = velocity_dir
+            velocity_dir = p * velocity_dir + (1 - p) * R.dot(prev_velocity_dir)
+            velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
+            pixel_coords_hom = np.dot(K, velocity_dir)
+            # pixel_coords_hom = np.dot(K, t.reshape(3, 1))
+            pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2])
+            # # Convert to integer coordinates
+            # if pixel_coords is within the image bounds:
+            pixel_coords = (pixel_coords).astype(int).flatten()
+            if len(pixel_coords) == 4:
+                pixel_coords = [pixel_coords[0], pixel_coords[2]]
+            print(pixel_coords)
+
+            # Draw the cross at the projected point
+            cross_size = 20
+            color = (0, 255, 0)  # green color
+            thickness = 2
+            # draw a cross in the middle of the screen
+            img = cv.line(img, (width // 2 - cross_size, height // 2),
+                          (width // 2 + cross_size, height // 2), color, thickness)
+            img = cv.line(img, (width // 2, height // 2 - cross_size),
+                            (width // 2, height // 2 + cross_size), color, thickness)
+            # draw a circle at the projected point
+            if 0 <= pixel_coords[0] < width and 0 <= pixel_coords[1] < height:
+                img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), 10, color, thickness)
 
         # img = cv.drawMatches(img, prev_kp, img, kp, matches[:500], None, flags=2)
 
     # img *= 0
 
     if is_draw_keypoints:
-        img = cv.drawKeypoints(img, kp, None, color=(0, 255, 0))
+        # img = cv.drawKeypoints(img, kp, None, color=(0, 255, 0))
+        # draw keypoints that are matched with the previous frame
+        if matches is not None:
+            if len(matches) > min_n_matches:
+                matched_kp = [kp[m.trainIdx] for m in matches]
+                img = cv.drawKeypoints(img, matched_kp, None, color=(0, 255, 0))
+                # img = cv.drawKeypoints(img, kp, None, color=(0, 255, 0))
+                # draw a line between each keypoint and its maching keypoint from the previous frame
+                # Loop over the matches and draw lines between matching points
+                for pt1, pt2 in zip(pts1, pts2):
+                    pt1 = tuple(np.round(pt1).astype(int))
+                    pt2 = tuple(np.round(pt2).astype(int))
+
+                    # Draw line in red color with thickness 1 px
+                    cv.line(img, pt1, pt2, (0, 0, 255), 1)
     if is_draw_lines:
         # Convert keypoints to an array of their coordinates
         kp_array = np.array([point.pt for point in kp])
@@ -91,9 +208,14 @@ while True:
                 if neighbor_distance <= max_neighbor_distance:  # Add your distance check here
                     img = cv.line(img, tuple(np.int0(kp_array[i])), tuple(np.int0(kp_array[neighbor_index])),
                                   (0, 255, 0), 1)
-
+    if matches is not None:
+        # add text to image with len(matches)
+        font = cv.FONT_HERSHEY_SIMPLEX
+        cv.putText(img, str(len(matches)), (10, 500), font, 4, (255, 255, 255), 2, cv.LINE_AA)
     cv.imshow('ORB Detection Test', img)
-
+    if matches is not None and len(matches) > min_n_matches:
+        kp = [kp[m.trainIdx] for m in matches]
+        des = np.vstack([des[m.trainIdx] for m in matches])
     prev_kp, prev_des = kp, des
 
     if cv.waitKey(10) & 0xFF == 27:

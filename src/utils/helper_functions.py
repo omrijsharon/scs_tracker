@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+import json
 
 def softmax(x):
     e_x = np.exp(x - np.max(x))
@@ -74,3 +74,43 @@ def get_particles_attr(particles, attr: str, mask=None):
     if mask is not None:
         values = values[mask]
     return values
+
+
+def json_reader(path):
+    with open(path, 'r') as f:
+        return json.load(f)
+
+
+def scale_intrinsic_matrix(K, original_frame_size, current_frame_size):
+    original_frame_size = np.sort(original_frame_size)
+    current_frame_size = np.sort(current_frame_size)
+    # Get scale factors
+    x_scale = current_frame_size[0] / original_frame_size[0]
+    y_scale = current_frame_size[1] / original_frame_size[1]
+
+    # Create a copy of K to modify
+    K_scaled = K.copy()
+
+    # Scale fx and cx
+    K_scaled[0, 0] *= x_scale  # fx
+    K_scaled[0, 2] *= x_scale  # cx
+
+    # Scale fy and cy
+    K_scaled[1, 1] *= y_scale  # fy
+    K_scaled[1, 2] *= y_scale  # cy
+
+    # K_scaled[2, 2] stays 1
+
+    return K_scaled
+
+
+# intrinsic matrix if not given:
+def create_intrinsic_matrix(width, height, hfov, vfov):
+    hfov_rad = np.deg2rad(hfov)
+    vfov_rad = np.deg2rad(vfov)
+    fx = 0.5 * width / np.tan(0.5 * hfov_rad)
+    fy = 0.5 * height / np.tan(0.5 * vfov_rad)
+    px = width // 2
+    py = height // 2
+    K = np.array([[fx, 0, px], [0, fy, py], [0, 0, 1]])  # intrinsic matrix with given parameters
+    return K
