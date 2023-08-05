@@ -114,3 +114,19 @@ def create_intrinsic_matrix(width, height, hfov, vfov):
     py = height // 2
     K = np.array([[fx, 0, px], [0, fy, py], [0, 0, 1]])  # intrinsic matrix with given parameters
     return K
+
+
+def match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_neighbors=0):
+    if n_neighbors == 0:
+        matches = matcher.match(prev_des, des)
+        # matches = [m for m in matches if max_disparity > abs(prev_kp[m.queryIdx].pt[0] - kp[m.trainIdx].pt[0]) > min_disparity]
+        matches = [m for m in matches if min_disparity <= m.distance < max_disparity]
+    else:
+        matches = matcher.knnMatch(prev_des, des, k=n_neighbors)
+        best_matches = []
+        for m in matches:
+            valid_matches = [match for match in m if min_disparity <= match.distance < max_disparity]
+            if valid_matches:
+                best_matches.append(min(valid_matches, key=lambda match: match.distance))
+        matches = best_matches
+    return matches
