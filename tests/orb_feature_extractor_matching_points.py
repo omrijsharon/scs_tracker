@@ -13,13 +13,16 @@ intrinsic_matrix = np.array(camera_settings['fisheye_params']['camera_matrix'])
 calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, height)
 n_grid_cells = 4
 hfov = 120
-max_disparity = 47 # 47 gives the best results
-min_disparity = 8
-n_neighbors = 2
-min_n_matches = 50
+max_disparity = 67 # 47 gives the best results
+min_disparity = 18
+n_neighbors = 8
+min_n_matches = 20
+max_matches_per_cell = 10 # -1 means no limit
 max_neighbor_distance = 8
+marker_size = 10
+
 is_draw_lines = False
-is_draw_keypoints = False
+is_draw_keypoints = True
 is_grid = True
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
 img = cap.capture()
@@ -28,7 +31,7 @@ v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / i
 K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
 focal = K[0, 0]
 pp = (K[0, 2], K[1, 2])
-p = 1
+p = 0.25
 # define the size of the grid
 grid_size = (n_grid_cells, n_grid_cells)
 # create empty list with size of the grid
@@ -63,8 +66,9 @@ matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
 # Initialize variables for keypoints and descriptors
 prev_kp, prev_des = None, None
-velocity_dir, prev_velocity_dir = None, None
+velocity_dir = None
 matches = None
+pixel_coords, prev_pixel_coords = None, None
 
 # init matplotlib figure
 fig, ax = plt.subplots(1, 1)
@@ -107,6 +111,8 @@ while True:
 
                 if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//np.prod(grid_size) and len(cell_kp) > 0):
                     matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=8, max_disparity=47, n_neighbors=0)
+                    #sort matches by distance
+                    matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
                     pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
                     pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
                     # assign cell_kp to grid_prev_kp
@@ -172,9 +178,6 @@ while True:
         # Project the direction vector to the image plane
         # t = t / np.linalg.norm(t)
         velocity_dir = R.dot(t.reshape(3, 1))
-        if prev_velocity_dir is None:
-            prev_velocity_dir = velocity_dir
-        velocity_dir = p * velocity_dir + (1 - p) * R.dot(prev_velocity_dir)
         velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
         pixel_coords_hom = np.dot(K, velocity_dir)
         # pixel_coords_hom = np.dot(K, t.reshape(3, 1))
@@ -201,8 +204,13 @@ while True:
                         (width // 2, height // 2 + cross_size), color, thickness)
         # draw a circle at the projected point
         if 0 <= pixel_coords[0] < width and 0 <= pixel_coords[1] < height:
-            marker_size = int(3000 / len(pts2))
-            marker_size = max(3, marker_size)
+            if prev_pixel_coords is None: # first frame
+                prev_pixel_coords = np.array(pixel_coords)
+            else:
+                pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
+                prev_pixel_coords = pixel_coords
+            # marker_size = int(1000 / len(pts2))
+            # marker_size = max(3, marker_size)
             img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color, thickness)
 
         # img = cv.drawMatches(img, prev_kp, img, kp, matches[:500], None, flags=2)
@@ -225,6 +233,8 @@ while True:
 
                     # Draw line in red color with thickness 1 px
                     cv.line(img, pt1, pt2, (0, 0, 255), 1)
+                    # write text of the distance between the points next to the line
+                    # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
     if is_draw_lines:
         # Convert keypoints to an array of their coordinates
         kp_array = np.array([point.pt for point in kp])
