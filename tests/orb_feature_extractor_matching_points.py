@@ -21,6 +21,7 @@ max_matches_per_cell = 10 # -1 means no limit
 max_neighbor_distance = 8
 marker_size = 10
 
+is_get_depth = False
 is_draw_lines = False
 is_draw_keypoints = True
 is_grid = True
@@ -169,6 +170,14 @@ while True:
         if len(pts1) > 0:
             _, R, t, _ = cv.recoverPose(E, pts1, pts2)
             # _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+            if is_get_depth:
+                extrinsic = np.hstack([R, t])
+                P1 = np.dot(K, np.eye(3, 4))
+                P2 = np.dot(K, extrinsic)
+                homogeneous_3D = cv.triangulatePoints(P1, P2, pts1.T, pts2.T)
+                dehomo_3D = (homogeneous_3D / homogeneous_3D[3]).T
+                depths = dehomo_3D[:, 2]
+
         print(t.flatten())
         # t = np.array([[1, 0, 1]])
         # Compute the fundamental matrix using the normalized 8-point algorithm
