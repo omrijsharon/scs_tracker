@@ -14,7 +14,7 @@ calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, 
 n_grid_cells = 4
 hfov = 120
 max_disparity = 67 # 47 gives the best results
-min_disparity = 18
+min_disparity = 28
 n_neighbors = 8
 min_n_matches = 20
 max_matches_per_cell = 10 # -1 means no limit
@@ -32,7 +32,7 @@ v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / i
 K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
 focal = K[0, 0]
 pp = (K[0, 2], K[1, 2])
-p = 0.25
+p = 0.2
 # define the size of the grid
 grid_size = (n_grid_cells, n_grid_cells)
 # create empty list with size of the grid
@@ -204,13 +204,39 @@ while True:
 
         # Draw the cross at the projected point
         cross_size = 20
-        color = (0, 255, 0)  # green color
+        color_white = (255, 255, 255)
+        color_gray = (200, 200, 200)
+        color_black = (0, 0, 0)
         thickness = 2
+        radius = 2
+        outer_radius = 5
         # draw a cross in the middle of the screen
-        img = cv.line(img, (width // 2 - cross_size, height // 2),
-                      (width // 2 + cross_size, height // 2), color, thickness)
-        img = cv.line(img, (width // 2, height // 2 - cross_size),
-                        (width // 2, height // 2 + cross_size), color, thickness)
+        # img = cv.line(img, (width // 2 - cross_size, height // 2),
+        #               (width // 2 + cross_size, height // 2), color, thickness)
+        # img = cv.line(img, (width // 2, height // 2 - cross_size),
+        #                 (width // 2, height // 2 + cross_size), color, thickness)
+
+        # draw an X that passes through the center of the screen
+        img = cv.line(img, (0, 0), (width, height), color_gray, 1)
+        img = cv.line(img, (width, 0), (0, height), color_gray, 1)
+
+
+        # draw a cross at the middle of the screen but without its center. make it out of 4 lines
+        img = cv.line(img, (width // 2 - cross_size, height // 2), (width // 2 - radius - outer_radius, height // 2), color_black, thickness+2)
+        img = cv.line(img, (width // 2 + cross_size, height // 2), (width // 2 + radius + outer_radius, height // 2), color_black, thickness+2)
+        img = cv.line(img, (width // 2, height // 2 - cross_size), (width // 2, height // 2 - radius - outer_radius), color_black, thickness+2)
+        img = cv.line(img, (width // 2, height // 2 + cross_size), (width // 2, height // 2 + radius + outer_radius), color_black, thickness+2)
+
+        img = cv.line(img, (width // 2 - cross_size, height // 2), (width // 2 - radius - outer_radius, height // 2), color_white, thickness)
+        img = cv.line(img, (width // 2 + cross_size, height // 2), (width // 2 + radius + outer_radius, height // 2), color_white, thickness)
+        img = cv.line(img, (width // 2, height // 2 - cross_size), (width // 2, height // 2 - radius - outer_radius), color_white, thickness)
+        img = cv.line(img, (width // 2, height // 2 + cross_size), (width // 2, height // 2 + radius + outer_radius), color_white, thickness)
+
+
+        # draw a point in the middle of the screen
+        img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness+1)
+        img = cv.circle(img, (width // 2, height // 2), radius-1, color_white, thickness)
+
         # draw a circle at the projected point
         if 0 <= pixel_coords[0] < width and 0 <= pixel_coords[1] < height:
             if prev_pixel_coords is None: # first frame
@@ -220,7 +246,8 @@ while True:
                 prev_pixel_coords = pixel_coords
             # marker_size = int(1000 / len(pts2))
             # marker_size = max(3, marker_size)
-            img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color, thickness)
+            img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness+2)
+            img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
 
         # img = cv.drawMatches(img, prev_kp, img, kp, matches[:500], None, flags=2)
 
