@@ -11,20 +11,24 @@ path =r'C:\Users\omri_\OneDrive\Documents\repos\gyroflow\resources\camera_preset
 camera_settings = json_reader(path)
 intrinsic_matrix = np.array(camera_settings['fisheye_params']['camera_matrix'])
 calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, height)
-n_grid_cells = 4
+n_grid_cells = 8
 hfov = 120
-max_disparity = 67 # 47 gives the best results
-min_disparity = 28
+max_disparity = 47 # 47 gives the best results
+if n_grid_cells <= 4:
+    min_disparity = 28
+    N = 5000
+else:
+    min_disparity = 8
+    N = 20000
 n_neighbors = 8
 min_n_matches = 20
-max_matches_per_cell = 10 # -1 means no limit
+max_matches_per_cell = 30 # -1 means no limit
 max_neighbor_distance = 8
 marker_size = 10
 
 is_get_depth = False
 is_draw_lines = False
 is_draw_keypoints = True
-is_grid = True
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
 img = cap.capture()
 v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / img.shape[1]))
@@ -32,7 +36,7 @@ v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / i
 K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
 focal = K[0, 0]
 pp = (K[0, 2], K[1, 2])
-p = 0.2
+p = 0.25
 # define the size of the grid
 grid_size = (n_grid_cells, n_grid_cells)
 # create empty list with size of the grid
@@ -40,8 +44,6 @@ grid_prev_kp = [[[None] for _ in range(grid_size[0])] for _ in range(grid_size[1
 grid_prev_des = [[[None] for _ in range(grid_size[0])] for _ in range(grid_size[1])]
 
 cv.namedWindow('ORB Detection Test', cv.WINDOW_NORMAL)
-
-N = 10000
 
 def f(x=None):
     return
@@ -93,41 +95,35 @@ while True:
     pts2 = []
 
     # create ORB object and compute keypoints and descriptors
-    if not is_grid:
-        orb = cv.ORB_create(nfeatures=nfeatures, scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
-        kp, des = orb.detectAndCompute(gray, None)
-    else:
-        orb = cv.ORB_create(nfeatures=nfeatures//np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
-        # kp = []
-        # des = []
-        for i in range(grid_size[0]):
-            for j in range(grid_size[1]):
-                # Compute keypoints and descriptors for each cell
-                cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
-                cell_kp, cell_des = orb.detectAndCompute(cell, None)
+    orb = cv.ORB_create(nfeatures=nfeatures//np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
+    for i in range(grid_size[0]):
+        for j in range(grid_size[1]):
+            # Compute keypoints and descriptors for each cell
+            cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
+            cell_kp, cell_des = orb.detectAndCompute(cell, None)
 
-                # Adjust the keypoint positions
-                for k in cell_kp:
-                    k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
+            # Adjust the keypoint positions
+            for k in cell_kp:
+                k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
 
-                if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//np.prod(grid_size) and len(cell_kp) > 0):
-                    matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=8, max_disparity=47, n_neighbors=0)
-                    #sort matches by distance
-                    matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
-                    pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
-                    pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
-                    # assign cell_kp to grid_prev_kp
+            if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//np.prod(grid_size) and len(cell_kp) > 0):
+                matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
+                #sort matches by distance
+                matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
+                pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
+                pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
+                # assign cell_kp to grid_prev_kp
 
-                grid_prev_kp[j][i] = cell_kp
-                grid_prev_des[j][i] = cell_des
+            grid_prev_kp[j][i] = cell_kp
+            grid_prev_des[j][i] = cell_des
 
-                # if len(cell_kp) > 0:
-                #     kp.extend(cell_kp)
-                #     des.extend(cell_des)
+            # if len(cell_kp) > 0:
+            #     kp.extend(cell_kp)
+            #     des.extend(cell_des)
 
-        if len(pts1) > 0:
-            pts1 = np.vstack(pts1)
-            pts2 = np.vstack(pts2)
+    if len(pts1) > 0:
+        pts1 = np.vstack(pts1)
+        pts2 = np.vstack(pts2)
     # if prev_kp is not None and prev_des is not None and len(des) > min_n_matches:
     if len(pts1) > min_n_matches:
         # matches = match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_neighbors=0)

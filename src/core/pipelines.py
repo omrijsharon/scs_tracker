@@ -38,7 +38,7 @@ particles = []
 particle_max_chance_threshold = 0.001  # under this value particle will be replaced
 is_random_spread = False
 is_particles = False
-rect_debug = False
+rect_debug = True
 
 
 # particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
