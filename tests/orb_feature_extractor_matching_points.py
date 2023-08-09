@@ -13,16 +13,16 @@ intrinsic_matrix = np.array(camera_settings['fisheye_params']['camera_matrix'])
 calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, height)
 n_grid_cells = 8
 hfov = 120
-max_disparity = 47 # 47 gives the best results
 if n_grid_cells <= 4:
-    min_disparity = 28
+    min_disparity = 58
     N = 5000
+    max_matches_per_cell = 100  # -1 means no limit
 else:
     min_disparity = 8
     N = 20000
+    max_matches_per_cell = -1  # -1 means no limit
 n_neighbors = 8
 min_n_matches = 20
-max_matches_per_cell = 30 # -1 means no limit
 max_neighbor_distance = 8
 marker_size = 10
 
@@ -30,13 +30,16 @@ is_get_depth = False
 is_draw_lines = False
 is_draw_keypoints = True
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
+# given the resolution tlwh (top-left-width-height) of the screen capture, and the grid size, calculate the size of each cell
+cell_size = (cap.monitor["width"] / n_grid_cells, cap.monitor["height"] / n_grid_cells)
+max_disparity = np.sqrt(cell_size[0] ** 2 + cell_size[1] ** 2).astype(int) // 3
 img = cap.capture()
 v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / img.shape[1]))
 # K = scale_intrinsic_matrix(intrinsic_matrix, calib_resolution, img.shape[:2])
 K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
 focal = K[0, 0]
 pp = (K[0, 2], K[1, 2])
-p = 0.25
+p = 0.5
 # define the size of the grid
 grid_size = (n_grid_cells, n_grid_cells)
 # create empty list with size of the grid
@@ -53,19 +56,27 @@ cv.createTrackbar('Max Features', 'ORB Detection Test', 500, N, f)
 cv.createTrackbar('Scale Factor (x10)', 'ORB Detection Test', 20, 40, f)
 cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
+cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
+cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
+cv.createTrackbar('fastThreshold', 'ORB Detection Test', 20, 100, f)
+cv.createTrackbar('Min Disparity', 'ORB Detection Test', min_disparity, max_disparity, f)
+cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', max_matches_per_cell, 100, f)
+cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
+cv.createTrackbar('p', 'ORB Detection Test', int(p * 100), 100, f)
+
 
 # Create BFMatcher object
-matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+# matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
 # FLANN parameters for ORB
-# FLANN_INDEX_LSH = 6
-# index_params= dict(algorithm = FLANN_INDEX_LSH,
-#                    table_number = 6, # 12
-#                    key_size = 12,     # 20
-#                    multi_probe_level = 1) #2
-# search_params = dict(checks=50)   # or pass empty dictionary
-#
-# matcher = cv.FlannBasedMatcher(index_params, search_params)
+FLANN_INDEX_LSH = 6
+index_params= dict(algorithm = FLANN_INDEX_LSH,
+                   table_number = 6, # 12
+                   key_size = 12,     # 20
+                   multi_probe_level = 1) #2
+search_params = dict(checks=50)   # or pass empty dictionary
+
+matcher = cv.FlannBasedMatcher(index_params, search_params)
 
 # Initialize variables for keypoints and descriptors
 prev_kp, prev_des = None, None
@@ -90,12 +101,32 @@ while True:
     nlevels = cv.getTrackbarPos('Levels', 'ORB Detection Test')
     WTA_K = cv.getTrackbarPos('WTA_K (2 or 4)', 'ORB Detection Test')
     WTA_K = 2 if WTA_K == 2 else 4
+    edgeThreshold = cv.getTrackbarPos('edgeThreshold', 'ORB Detection Test')
+    edgeThreshold = 31 if edgeThreshold == 0 else edgeThreshold
+    patchSize = cv.getTrackbarPos('patchSize', 'ORB Detection Test')
+    patchSize = 2 if patchSize >= 2 else patchSize
+    fastThreshold = cv.getTrackbarPos('fastThreshold', 'ORB Detection Test')
+    fastThreshold = 20 if fastThreshold == 0 else fastThreshold
+    min_disparity = cv.getTrackbarPos('Min Disparity', 'ORB Detection Test')
+    max_matches_per_cell = cv.getTrackbarPos('Max Matches per Cell', 'ORB Detection Test')
+    max_matches_per_cell = -1 if max_matches_per_cell == 0 else max_matches_per_cell
+    min_n_matches = cv.getTrackbarPos('Min Matches', 'ORB Detection Test')
+    min_n_matches = 10 if min_n_matches < 10 else min_n_matches
+    p = cv.getTrackbarPos('p', 'ORB Detection Test') / 100.0
+    p = 0.01 if p == 0 else p
+
 
     pts1 = []
     pts2 = []
 
     # create ORB object and compute keypoints and descriptors
-    orb = cv.ORB_create(nfeatures=nfeatures//np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
+    # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
+    #                     WTA_K=WTA_K, edgeThreshold=edgeThreshold, patchSize=patchSize, fastThreshold=fastThreshold,
+    #                     scoreType=cv.ORB_HARRIS_SCORE)
+    # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
+    #                     WTA_K=WTA_K, edgeThreshold=edgeThreshold)
+    orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
+                        WTA_K=WTA_K)
     for i in range(grid_size[0]):
         for j in range(grid_size[1]):
             # Compute keypoints and descriptors for each cell
@@ -158,7 +189,7 @@ while True:
 
         # find essential matrix with 8-point algorithm
         # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.FM_8POINT)
-        E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.RANSAC, 0.99999999, 1.0, None)
+        E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.RANSAC, 0.999999, 1.0, None)
         # Optionally, filter matches using the computed fundamental matrix
         pts1 = pts1[mask.ravel() == 1]
         pts2 = pts2[mask.ravel() == 1]
