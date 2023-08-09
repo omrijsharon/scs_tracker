@@ -104,7 +104,7 @@ while True:
     edgeThreshold = cv.getTrackbarPos('edgeThreshold', 'ORB Detection Test')
     edgeThreshold = 31 if edgeThreshold == 0 else edgeThreshold
     patchSize = cv.getTrackbarPos('patchSize', 'ORB Detection Test')
-    patchSize = 2 if patchSize >= 2 else patchSize
+    patchSize = 2 if patchSize <= 2 else patchSize
     fastThreshold = cv.getTrackbarPos('fastThreshold', 'ORB Detection Test')
     fastThreshold = 20 if fastThreshold == 0 else fastThreshold
     min_disparity = cv.getTrackbarPos('Min Disparity', 'ORB Detection Test')
@@ -123,10 +123,10 @@ while True:
     # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
     #                     WTA_K=WTA_K, edgeThreshold=edgeThreshold, patchSize=patchSize, fastThreshold=fastThreshold,
     #                     scoreType=cv.ORB_HARRIS_SCORE)
-    # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
-    #                     WTA_K=WTA_K, edgeThreshold=edgeThreshold)
     orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
-                        WTA_K=WTA_K)
+                        WTA_K=WTA_K, patchSize=patchSize, edgeThreshold=edgeThreshold, fastThreshold=fastThreshold, scoreType=cv.ORB_HARRIS_SCORE)
+    # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
+    #                     WTA_K=WTA_K)
     for i in range(grid_size[0]):
         for j in range(grid_size[1]):
             # Compute keypoints and descriptors for each cell
