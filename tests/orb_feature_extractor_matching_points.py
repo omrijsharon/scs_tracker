@@ -1,6 +1,6 @@
 import numpy as np
 import cv2 as cv
-from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points
+from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
 
@@ -14,12 +14,12 @@ calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, 
 n_grid_cells = 8
 hfov = 120
 if n_grid_cells <= 4:
-    min_disparity = 58
+    min_disparity = 38
     N = 5000
     max_matches_per_cell = 100  # -1 means no limit
 else:
-    min_disparity = 8
-    N = 20000
+    min_disparity = 28
+    N = 5000
     max_matches_per_cell = -1  # -1 means no limit
 n_neighbors = 8
 min_n_matches = 20
@@ -40,6 +40,15 @@ K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
 focal = K[0, 0]
 pp = (K[0, 2], K[1, 2])
 p = 0.5
+
+cross_size = 20
+color_white = (255, 255, 255)
+color_gray = (200, 200, 200)
+color_black = (0, 0, 0)
+thickness = 2
+radius = 2
+outer_radius = 5
+
 # define the size of the grid
 grid_size = (n_grid_cells, n_grid_cells)
 # create empty list with size of the grid
@@ -66,17 +75,17 @@ cv.createTrackbar('p', 'ORB Detection Test', int(p * 100), 100, f)
 
 
 # Create BFMatcher object
-# matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
 # FLANN parameters for ORB
-FLANN_INDEX_LSH = 6
-index_params= dict(algorithm = FLANN_INDEX_LSH,
-                   table_number = 6, # 12
-                   key_size = 12,     # 20
-                   multi_probe_level = 1) #2
-search_params = dict(checks=50)   # or pass empty dictionary
-
-matcher = cv.FlannBasedMatcher(index_params, search_params)
+# FLANN_INDEX_LSH = 6
+# index_params= dict(algorithm = FLANN_INDEX_LSH,
+#                    table_number = 6, # 12
+#                    key_size = 12,     # 20
+#                    multi_probe_level = 1) #2
+# search_params = dict(checks=50)   # or pass empty dictionary
+#
+# matcher = cv.FlannBasedMatcher(index_params, search_params)
 
 # Initialize variables for keypoints and descriptors
 prev_kp, prev_des = None, None
@@ -124,7 +133,7 @@ while True:
     #                     WTA_K=WTA_K, edgeThreshold=edgeThreshold, patchSize=patchSize, fastThreshold=fastThreshold,
     #                     scoreType=cv.ORB_HARRIS_SCORE)
     orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
-                        WTA_K=WTA_K, patchSize=patchSize, edgeThreshold=edgeThreshold, fastThreshold=fastThreshold, scoreType=cv.ORB_HARRIS_SCORE)
+                        WTA_K=WTA_K, edgeThreshold=edgeThreshold, fastThreshold=fastThreshold, scoreType=cv.ORB_HARRIS_SCORE)
     # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
     #                     WTA_K=WTA_K)
     for i in range(grid_size[0]):
@@ -205,11 +214,7 @@ while True:
                 dehomo_3D = (homogeneous_3D / homogeneous_3D[3]).T
                 depths = dehomo_3D[:, 2]
 
-        print(t.flatten())
-        # t = np.array([[1, 0, 1]])
-        # Compute the fundamental matrix using the normalized 8-point algorithm
-        # _, mask = cv.findFundamentalMat(pts1, pts2, cv.FM_RANSAC)
-        # F, mask = cv.findFundamentalMat(pts1, pts2, cv.FM_8POINT)
+        # print(t.flatten())
 
         # Project the direction vector to the image plane
         # t = t / np.linalg.norm(t)
@@ -227,39 +232,10 @@ while True:
         # clamp pixel_coords to the image size
         pixel_coords[0] = max(0, min(pixel_coords[0], width))
         pixel_coords[1] = max(0, min(pixel_coords[1], height))
-        print(pixel_coords)
+        # print(pixel_coords)
 
         # Draw the cross at the projected point
-        cross_size = 20
-        color_white = (255, 255, 255)
-        color_gray = (200, 200, 200)
-        color_black = (0, 0, 0)
-        thickness = 2
-        radius = 2
-        outer_radius = 5
-        # draw a cross in the middle of the screen
-        # img = cv.line(img, (width // 2 - cross_size, height // 2),
-        #               (width // 2 + cross_size, height // 2), color, thickness)
-        # img = cv.line(img, (width // 2, height // 2 - cross_size),
-        #                 (width // 2, height // 2 + cross_size), color, thickness)
-
-        # draw an X that passes through the center of the screen
-        img = cv.line(img, (0, 0), (width, height), color_gray, 1)
-        img = cv.line(img, (width, 0), (0, height), color_gray, 1)
-
-
-        # draw a cross at the middle of the screen but without its center. make it out of 4 lines
-        img = cv.line(img, (width // 2 - cross_size, height // 2), (width // 2 - radius - outer_radius, height // 2), color_black, thickness+2)
-        img = cv.line(img, (width // 2 + cross_size, height // 2), (width // 2 + radius + outer_radius, height // 2), color_black, thickness+2)
-        img = cv.line(img, (width // 2, height // 2 - cross_size), (width // 2, height // 2 - radius - outer_radius), color_black, thickness+2)
-        img = cv.line(img, (width // 2, height // 2 + cross_size), (width // 2, height // 2 + radius + outer_radius), color_black, thickness+2)
-
-        img = cv.line(img, (width // 2 - cross_size, height // 2), (width // 2 - radius - outer_radius, height // 2), color_white, thickness)
-        img = cv.line(img, (width // 2 + cross_size, height // 2), (width // 2 + radius + outer_radius, height // 2), color_white, thickness)
-        img = cv.line(img, (width // 2, height // 2 - cross_size), (width // 2, height // 2 - radius - outer_radius), color_white, thickness)
-        img = cv.line(img, (width // 2, height // 2 + cross_size), (width // 2, height // 2 + radius + outer_radius), color_white, thickness)
-
-
+        draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
         # draw a point in the middle of the screen
         img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness+1)
         img = cv.circle(img, (width // 2, height // 2), radius-1, color_white, thickness)
@@ -315,7 +291,7 @@ while True:
     if len(pts2)>0:
         # add text to image with len(matches)
         font = cv.FONT_HERSHEY_SIMPLEX
-        cv.putText(img, str(len(pts2)), (10, 500), font, 4, (255, 255, 255), 2, cv.LINE_AA)
+        cv.putText(img, str(len(pts2)), (10, 500), font, 1, (255, 255, 255), 2, cv.LINE_AA)
     cv.imshow('ORB Detection Test', img)
     # if matches is not None and len(matches) > 100*min_n_matches:
     #     kp = [kp[m.trainIdx] for m in matches]

@@ -1,5 +1,5 @@
 import numpy as np
-import cv2
+import cv2 as cv
 import json
 
 def softmax(x):
@@ -44,7 +44,7 @@ def as_cv_img(img):
 
 def normalize_img(img, kernel_size, eps=1e-6):
     k = np.ones((kernel_size, kernel_size), dtype=np.float32)
-    return img / (np.sqrt(cv2.filter2D(img.astype(np.float32)**2, cv2.CV_32F, k)) + eps)
+    return img / (np.sqrt(cv.filter2D(img.astype(np.float32)**2, cv.CV_32F, k)) + eps)
 
 
 def normalize_kernel(k):
@@ -130,3 +130,31 @@ def match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_ne
                 best_matches.append(min(valid_matches, key=lambda match: match.distance))
         matches = best_matches
     return matches
+
+def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):
+    color_gray = (200, 200, 200)
+    color_black = (0, 0, 0)
+    color_white = (255, 255, 255)
+    # draw an X that passes through the center of the screen
+    img = cv.line(img, (0, 0), (width, height), color_gray, 1)
+    img = cv.line(img, (width, 0), (0, height), color_gray, 1)
+
+    # draw a cross at the middle of the screen but without its center. make it out of 4 lines
+    img = cv.line(img, (width // 2 - cross_size, height // 2), (width // 2 - radius - outer_radius, height // 2),
+                  color_black, thickness + 2)
+    img = cv.line(img, (width // 2 + cross_size, height // 2), (width // 2 + radius + outer_radius, height // 2),
+                  color_black, thickness + 2)
+    img = cv.line(img, (width // 2, height // 2 - cross_size), (width // 2, height // 2 - radius - outer_radius),
+                  color_black, thickness + 2)
+    img = cv.line(img, (width // 2, height // 2 + cross_size), (width // 2, height // 2 + radius + outer_radius),
+                  color_black, thickness + 2)
+
+    img = cv.line(img, (width // 2 - cross_size, height // 2), (width // 2 - radius - outer_radius, height // 2),
+                  color_white, thickness)
+    img = cv.line(img, (width // 2 + cross_size, height // 2), (width // 2 + radius + outer_radius, height // 2),
+                  color_white, thickness)
+    img = cv.line(img, (width // 2, height // 2 - cross_size), (width // 2, height // 2 - radius - outer_radius),
+                  color_white, thickness)
+    img = cv.line(img, (width // 2, height // 2 + cross_size), (width // 2, height // 2 + radius + outer_radius),
+                  color_white, thickness)
+
