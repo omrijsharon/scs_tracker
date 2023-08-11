@@ -3,6 +3,7 @@ import cv2 as cv
 from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
 from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
+from time import perf_counter
 
 import utils.screen_capture as sc
 
@@ -19,7 +20,7 @@ if n_grid_cells <= 4:
     max_matches_per_cell = 100  # -1 means no limit
 else:
     min_disparity = 28
-    N = 5000
+    N = 10000
     max_matches_per_cell = -1  # -1 means no limit
 n_neighbors = 8
 min_n_matches = 20
@@ -67,7 +68,9 @@ cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
 cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
 cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-cv.createTrackbar('fastThreshold', 'ORB Detection Test', 20, 100, f)
+cv.createTrackbar('fastThreshold', 'ORB Detection Test', 60, 100, f)
+cv.createTrackbar('RANSAC hreshold', 'ORB Detection Test', 100, 300, f)
+cv.createTrackbar('maxIters', 'ORB Detection Test', 100, 500, f)
 cv.createTrackbar('Min Disparity', 'ORB Detection Test', min_disparity, max_disparity, f)
 cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', max_matches_per_cell, 100, f)
 cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
@@ -115,7 +118,12 @@ while True:
     patchSize = cv.getTrackbarPos('patchSize', 'ORB Detection Test')
     patchSize = 2 if patchSize <= 2 else patchSize
     fastThreshold = cv.getTrackbarPos('fastThreshold', 'ORB Detection Test')
-    fastThreshold = 20 if fastThreshold == 0 else fastThreshold
+    fastThreshold = 1 if fastThreshold == 0 else fastThreshold
+    threshold = cv.getTrackbarPos('RANSAC hreshold', 'ORB Detection Test')
+    threshold = 10 if threshold <= 10 else threshold
+    threshold = threshold / 100.0
+    maxIters = cv.getTrackbarPos('maxIters', 'ORB Detection Test')
+    maxIters = 1 if maxIters == 0 else maxIters
     min_disparity = cv.getTrackbarPos('Min Disparity', 'ORB Detection Test')
     max_matches_per_cell = cv.getTrackbarPos('Max Matches per Cell', 'ORB Detection Test')
     max_matches_per_cell = -1 if max_matches_per_cell == 0 else max_matches_per_cell
@@ -136,6 +144,7 @@ while True:
                         WTA_K=WTA_K, edgeThreshold=edgeThreshold, fastThreshold=fastThreshold, scoreType=cv.ORB_HARRIS_SCORE)
     # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
     #                     WTA_K=WTA_K)
+    t0 = perf_counter()
     for i in range(grid_size[0]):
         for j in range(grid_size[1]):
             # Compute keypoints and descriptors for each cell
@@ -145,7 +154,6 @@ while True:
             # Adjust the keypoint positions
             for k in cell_kp:
                 k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
-
             if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//np.prod(grid_size) and len(cell_kp) > 0):
                 matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
                 #sort matches by distance
@@ -160,7 +168,7 @@ while True:
             # if len(cell_kp) > 0:
             #     kp.extend(cell_kp)
             #     des.extend(cell_des)
-
+    t1 = perf_counter() - t0
     if len(pts1) > 0:
         pts1 = np.vstack(pts1)
         pts2 = np.vstack(pts2)
@@ -196,15 +204,33 @@ while True:
         # R = np.eye(3)
         # t = np.zeros((3, 1))
 
+        # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.FM_LMEDS)
         # find essential matrix with 8-point algorithm
         # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.FM_8POINT)
-        E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.RANSAC, 0.999999, 1.0, None)
-        # Optionally, filter matches using the computed fundamental matrix
-        pts1 = pts1[mask.ravel() == 1]
-        pts2 = pts2[mask.ravel() == 1]
+        # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.RANSAC, 0.999999, 1.0, None)
+        if len(pts1) > 100:
+            subsample_idx = np.random.choice(len(pts1), size=100, replace=False)
+            E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp,method=cv.RANSAC, prob=0.999999, threshold=threshold, maxIters=maxIters)
+            # Create a full-sized mask, default to 0
+            mask = np.zeros(len(pts1), dtype=np.uint8)
+
+            # Set the values of the full-sized mask according to the submask
+            mask[subsample_idx] = submask.ravel()
+            pts1 = pts1[mask == 1]
+            pts2 = pts2[mask == 1]
+        else:
+            E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.RANSAC, prob=0.999999, threshold=threshold, maxIters=maxIters)  # Decrease maxIters
+            pts1 = pts1[mask.ravel() == 1]
+            pts2 = pts2[mask.ravel() == 1]
+
+        t2 = perf_counter() - t0 - t1
 
         if len(pts1) > 0:
             _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+            t3 = perf_counter() - t0 - t2 - t1
+            # t1 is the keypoint and matches time, t2 is the essential matrix calculation time, t3 is the recover pose time
+            # print the times in ms with 2 decimal places and the name of the time
+            print('kp and matches: {:.2f}ms, essential matrix: {:.2f}ms, recover pose: {:.2f}ms. total time: {:.2f}ms, fps: {:.2f}'.format(t1*1000, t2*1000, t3*1000, (perf_counter() - t0)*1000, 1/(perf_counter() - t0)))
             # _, R, t, _ = cv.recoverPose(E, pts1, pts2)
             if is_get_depth:
                 extrinsic = np.hstack([R, t])
@@ -218,6 +244,7 @@ while True:
 
         # Project the direction vector to the image plane
         # t = t / np.linalg.norm(t)
+        # velocity_dir = -R.T.dot(t.reshape(3, 1))
         velocity_dir = R.dot(t.reshape(3, 1))
         velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
         pixel_coords_hom = np.dot(K, velocity_dir)

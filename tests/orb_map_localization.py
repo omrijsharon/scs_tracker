@@ -43,6 +43,9 @@ cv.createTrackbar('Max Features', 'Matches', 500, 10000, f)
 cv.createTrackbar('Scale Factor (x10)', 'Matches', 20, 40, f)
 cv.createTrackbar('Levels', 'Matches', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'Matches', 2, 4, f)
+cv.createTrackbar('edgeThreshold', 'Matches', 1, 50, f)
+cv.createTrackbar('patchSize', 'Matches', 31, 100, f)
+cv.createTrackbar('fastThreshold', 'Matches', 20, 100, f)
 
 # Set mouse callback function for window
 cv.setMouseCallback('Choose reference image', choose_ref)
@@ -57,6 +60,12 @@ while True:
         nlevels = cv.getTrackbarPos('Levels', 'Matches')
         WTA_K = cv.getTrackbarPos('WTA_K (2 or 4)', 'Matches')
         WTA_K = 2 if WTA_K == 2 else 4
+        edgeThreshold = cv.getTrackbarPos('edgeThreshold', 'Matches')
+        edgeThreshold = 31 if edgeThreshold == 0 else edgeThreshold
+        patchSize = cv.getTrackbarPos('patchSize', 'Matches')
+        patchSize = 2 if patchSize <= 2 else patchSize
+        fastThreshold = cv.getTrackbarPos('fastThreshold', 'Matches')
+        fastThreshold = 1 if fastThreshold == 0 else fastThreshold
 
         # Convert images to grayscale
         gray1 = cv.cvtColor(ref_img, cv.COLOR_BGR2GRAY)
