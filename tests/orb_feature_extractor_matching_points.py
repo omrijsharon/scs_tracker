@@ -12,7 +12,7 @@ path =r'C:\Users\omri_\OneDrive\Documents\repos\gyroflow\resources\camera_preset
 camera_settings = json_reader(path)
 intrinsic_matrix = np.array(camera_settings['fisheye_params']['camera_matrix'])
 calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, height)
-n_grid_cells = 8
+n_grid_cells = 4
 hfov = 120
 if n_grid_cells <= 4:
     min_disparity = 38
@@ -33,7 +33,8 @@ is_draw_keypoints = True
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
 # given the resolution tlwh (top-left-width-height) of the screen capture, and the grid size, calculate the size of each cell
 cell_size = (cap.monitor["width"] / n_grid_cells, cap.monitor["height"] / n_grid_cells)
-max_disparity = np.sqrt(cell_size[0] ** 2 + cell_size[1] ** 2).astype(int) // 3
+# max_disparity = np.sqrt(cell_size[0] ** 2 + cell_size[1] ** 2).astype(int) // 3
+max_disparity = 57
 img = cap.capture()
 v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / img.shape[1]))
 # K = scale_intrinsic_matrix(intrinsic_matrix, calib_resolution, img.shape[:2])
@@ -68,9 +69,9 @@ cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
 cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
 cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-cv.createTrackbar('fastThreshold', 'ORB Detection Test', 60, 100, f)
-cv.createTrackbar('RANSAC hreshold', 'ORB Detection Test', 100, 300, f)
-cv.createTrackbar('maxIters', 'ORB Detection Test', 100, 500, f)
+cv.createTrackbar('fastThreshold', 'ORB Detection Test', 40, 100, f)
+cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 50, 250, f)
+cv.createTrackbar('maxIters', 'ORB Detection Test', 50, 500, f)
 cv.createTrackbar('Min Disparity', 'ORB Detection Test', min_disparity, max_disparity, f)
 cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', max_matches_per_cell, 100, f)
 cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
@@ -119,9 +120,8 @@ while True:
     patchSize = 2 if patchSize <= 2 else patchSize
     fastThreshold = cv.getTrackbarPos('fastThreshold', 'ORB Detection Test')
     fastThreshold = 1 if fastThreshold == 0 else fastThreshold
-    threshold = cv.getTrackbarPos('RANSAC hreshold', 'ORB Detection Test')
-    threshold = 10 if threshold <= 10 else threshold
-    threshold = threshold / 100.0
+    subsample_size = cv.getTrackbarPos('RANSAC subsample_size', 'ORB Detection Test')
+    subsample_size = 10 if subsample_size <= 10 else subsample_size
     maxIters = cv.getTrackbarPos('maxIters', 'ORB Detection Test')
     maxIters = 1 if maxIters == 0 else maxIters
     min_disparity = cv.getTrackbarPos('Min Disparity', 'ORB Detection Test')
@@ -208,9 +208,9 @@ while True:
         # find essential matrix with 8-point algorithm
         # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.FM_8POINT)
         # E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, cv.RANSAC, 0.999999, 1.0, None)
-        if len(pts1) > 100:
-            subsample_idx = np.random.choice(len(pts1), size=100, replace=False)
-            E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp,method=cv.RANSAC, prob=0.999999, threshold=threshold, maxIters=maxIters)
+        if len(pts1) > subsample_size:
+            subsample_idx = np.random.choice(len(pts1), size=subsample_size, replace=False)
+            E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp,method=cv.RANSAC, prob=0.999999, threshold=1, maxIters=maxIters)
             # Create a full-sized mask, default to 0
             mask = np.zeros(len(pts1), dtype=np.uint8)
 
@@ -219,7 +219,7 @@ while True:
             pts1 = pts1[mask == 1]
             pts2 = pts2[mask == 1]
         else:
-            E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.RANSAC, prob=0.999999, threshold=threshold, maxIters=maxIters)  # Decrease maxIters
+            E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.RANSAC, prob=0.999999, threshold=1, maxIters=maxIters)  # Decrease maxIters
             pts1 = pts1[mask.ravel() == 1]
             pts2 = pts2[mask.ravel() == 1]
 
@@ -268,7 +268,8 @@ while True:
         img = cv.circle(img, (width // 2, height // 2), radius-1, color_white, thickness)
 
         # draw a circle at the projected point
-        if 0 <= pixel_coords[0] < width and 0 <= pixel_coords[1] < height:
+        if 0 <= pixel_coords[0] <= width and 0 <= pixel_coords[1] <= height:
+        # if velocity_dir[2] > 0:
             if prev_pixel_coords is None: # first frame
                 prev_pixel_coords = np.array(pixel_coords)
             else:
