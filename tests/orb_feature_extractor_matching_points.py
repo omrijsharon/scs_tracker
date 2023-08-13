@@ -12,12 +12,12 @@ path =r'C:\Users\omri_\OneDrive\Documents\repos\gyroflow\resources\camera_preset
 camera_settings = json_reader(path)
 intrinsic_matrix = np.array(camera_settings['fisheye_params']['camera_matrix'])
 calib_resolution = tuple(camera_settings['calib_dimension'].values()) # (width, height)
-n_grid_cells = 4
+n_grid_cells = 8
 hfov = 120
 if n_grid_cells <= 4:
-    min_disparity = 38
+    min_disparity = 28
     N = 5000
-    max_matches_per_cell = 100  # -1 means no limit
+    max_matches_per_cell = 17  # -1 means no limit
 else:
     min_disparity = 28
     N = 10000
@@ -63,15 +63,15 @@ def f(x=None):
     return
 
 
-cv.createTrackbar('Max Features', 'ORB Detection Test', 500, N, f)
+cv.createTrackbar('Max Features', 'ORB Detection Test', 5000, N, f)
 cv.createTrackbar('Scale Factor (x10)', 'ORB Detection Test', 20, 40, f)
 cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
 cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
 cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-cv.createTrackbar('fastThreshold', 'ORB Detection Test', 40, 100, f)
+cv.createTrackbar('fastThreshold', 'ORB Detection Test', 46, 100, f)
 cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 50, 250, f)
-cv.createTrackbar('maxIters', 'ORB Detection Test', 50, 500, f)
+cv.createTrackbar('maxIters', 'ORB Detection Test', 40, 500, f)
 cv.createTrackbar('Min Disparity', 'ORB Detection Test', min_disparity, max_disparity, f)
 cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', max_matches_per_cell, 100, f)
 cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
@@ -92,7 +92,7 @@ matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 # matcher = cv.FlannBasedMatcher(index_params, search_params)
 
 # Initialize variables for keypoints and descriptors
-prev_kp, prev_des = None, None
+# prev_kp, prev_des = None, None
 velocity_dir = None
 matches = None
 pixel_coords, prev_pixel_coords = None, None
@@ -104,6 +104,8 @@ while True:
     img = cap.capture()
     height, width = img.shape[:2]
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    # add gaussian blur to gray
+    # gray = cv.GaussianBlur(gray, (5, 5), 0)
     # divide the image into grid
     cell_width = width // grid_size[0]
     cell_height = height // grid_size[1]
@@ -145,8 +147,8 @@ while True:
     # orb = cv.ORB_create(nfeatures=nfeatures // np.prod(grid_size), scaleFactor=scaleFactor, nlevels=nlevels,
     #                     WTA_K=WTA_K)
     t0 = perf_counter()
-    for i in range(grid_size[0]):
-        for j in range(grid_size[1]):
+    for i in range(1, grid_size[0]-1):
+        for j in range(1, grid_size[1]-1):
             # Compute keypoints and descriptors for each cell
             cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
             cell_kp, cell_des = orb.detectAndCompute(cell, None)
@@ -154,7 +156,7 @@ while True:
             # Adjust the keypoint positions
             for k in cell_kp:
                 k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
-            if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//np.prod(grid_size) and len(cell_kp) > 0):
+            if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//(np.prod(np.array(grid_size)-2)) and len(cell_kp) > 0):
                 matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
                 #sort matches by distance
                 matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
@@ -299,7 +301,7 @@ while True:
                     pt2 = tuple(np.round(pt2).astype(int))
 
                     # Draw line in red color with thickness 1 px
-                    cv.line(img, pt1, pt2, (0, 0, 255), 1)
+                    cv.line(img, pt1, pt2, (0, 255, 0), 3)
                     # write text of the distance between the points next to the line
                     # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
     if is_draw_lines:
@@ -320,6 +322,8 @@ while True:
         # add text to image with len(matches)
         font = cv.FONT_HERSHEY_SIMPLEX
         cv.putText(img, str(len(pts2)), (10, 500), font, 1, (255, 255, 255), 2, cv.LINE_AA)
+        # add text of fps which is 1/(perf_counter() - t0)
+        cv.putText(img, str(int(1/(perf_counter() - t0))) + "FPS", (10, 450), font, 1, (255, 255, 255), 2, cv.LINE_AA)
     cv.imshow('ORB Detection Test', img)
     # if matches is not None and len(matches) > 100*min_n_matches:
     #     kp = [kp[m.trainIdx] for m in matches]
