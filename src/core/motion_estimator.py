@@ -6,8 +6,8 @@ from time import perf_counter
 import utils.screen_capture as sc
 
 n_grid_cells = 8
-min_n_matches = 20
-max_disparity = 57
+min_n_matches = 9
+max_disparity = 27
 marker_size = 10
 p = 0.5
 is_draw_keypoints = True
@@ -38,27 +38,29 @@ height, width = img.shape[:2]
 cell_width = width // grid_size[0]
 cell_height = height // grid_size[1]
 # create empty list with size of the grid
-grid_prev_kp = [[[None] for _ in range(grid_size[0])] for _ in range(grid_size[1])]
-grid_prev_des = [[[None] for _ in range(grid_size[0])] for _ in range(grid_size[1])]
+grid_prev_kp = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
+grid_prev_des = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
+grid_matches_prev_idx = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
 
 cv.namedWindow('ORB Detection Test', cv.WINDOW_NORMAL)
 
 def f(x=None):
     return
 
-cv.createTrackbar('Max Features', 'ORB Detection Test', 5000, 5000, f)
+cv.createTrackbar('Max Features', 'ORB Detection Test', 2800, 5000, f)
 cv.createTrackbar('Scale Factor (x10)', 'ORB Detection Test', 20, 40, f)
 cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
 cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
 cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-cv.createTrackbar('fastThreshold', 'ORB Detection Test', 46, 100, f)
+cv.createTrackbar('fastThreshold', 'ORB Detection Test', 40, 100, f)
 cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 50, 250, f)
 cv.createTrackbar('maxIters', 'ORB Detection Test', 40, 500, f)
-cv.createTrackbar('Min Disparity', 'ORB Detection Test', 28, max_disparity, f)
+cv.createTrackbar('Min Disparity', 'ORB Detection Test', 7, max_disparity, f)
 cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', 0, 100, f)
 cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
 cv.createTrackbar('p', 'ORB Detection Test', int(p * 100), 100, f)
+cv.createTrackbar('draw keypoints?', 'ORB Detection Test', 1, 1, f)
 
 
 if matcher_type == 'bf':
@@ -108,6 +110,7 @@ while True:
     min_n_matches = 10 if min_n_matches < 10 else min_n_matches
     p = cv.getTrackbarPos('p', 'ORB Detection Test') / 100.0
     p = 0.01 if p == 0 else p
+    is_draw_keypoints = bool(cv.getTrackbarPos('draw keypoints?', 'ORB Detection Test'))
 
     pts1 = []
     pts2 = []
@@ -119,18 +122,33 @@ while True:
             # Compute keypoints and descriptors for each cell
             cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
             cell_kp, cell_des = orb.detectAndCompute(cell, None)
-
+            is_any_kp = len(cell_kp) > 0
+            min_n_matches_per_cell = min_n_matches//(np.prod(np.array(grid_size)-2))
+            is_kp_more_than_min_n_matches = len(cell_kp) >= min_n_matches_per_cell
             # Adjust the keypoint positions
             for k in cell_kp:
                 k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
                 # k.pt = tuple(map(sum, zip(k.pt, (i * cell_width, j * cell_height))))
-
-            if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//(np.prod(np.array(grid_size)-2)) and len(cell_kp) > 0):
-                matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
-                #sort matches by distance
-                matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
-                pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
-                pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
+            if grid_prev_kp[j][i] is not None: # not first frame
+                if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and is_kp_more_than_min_n_matches and is_any_kp:
+                    if grid_matches_prev_idx[j][i] is None: # first pair of frames
+                        prev_des = grid_prev_des[j][i]
+                    else:
+                        # check if all the indices in grid_matches_prev_idx[j][i] are valid
+                        valid_matches = ([0 <= idx < len(grid_prev_des[j][i]) for idx in grid_matches_prev_idx[j][i]])
+                        if len(grid_matches_prev_idx[j][i]) <= min_n_matches_per_cell or any(valid_matches):
+                            prev_des = grid_prev_des[j][i]
+                        else:
+                            grid_matches_prev_idx[j][i] = np.array(grid_matches_prev_idx[j][i])[valid_matches]
+                            prev_des = np.take(grid_prev_des[j][i], grid_matches_prev_idx[j][i], axis=0)
+                    # matches = match_points(matcher, prev_des, cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
+                    matches = matcher.match(prev_des, cell_des)
+                    matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
+                    pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
+                    pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
+                    grid_matches_prev_idx[j][i] = [m.trainIdx for m in matches]
+                    if len(grid_matches_prev_idx[j][i]) == 0:
+                        grid_matches_prev_idx[j][i] = None
 
             # assign cell_kp to grid_prev_kp
             grid_prev_kp[j][i] = cell_kp
@@ -138,9 +156,16 @@ while True:
 
     t2 = perf_counter() - t0 - t1
 
-    if len(pts1) > min_n_matches:
+    if len(pts1) > 0:
         pts1 = np.vstack(pts1)
         pts2 = np.vstack(pts2)
+        # discard points that has a distance smaller than min_disparity or larger than max_disparity using np.linalg.norm(np.array(pt1) - np.array(pt2))
+        dist = np.linalg.norm(np.array(pts1) - np.array(pts2), axis=1)
+        dist_criteria = np.logical_and(dist > min_disparity, dist < max_disparity)
+        pts1 = pts1[dist_criteria]
+        pts2 = pts2[dist_criteria]
+
+    if len(pts1) > min_n_matches:
 
         if len(pts1) > subsample_size:
             subsample_idx = np.random.choice(len(pts1), size=subsample_size, replace=False)
@@ -211,6 +236,8 @@ while True:
                     pt2 = tuple(np.round(pt2).astype(int))
                     # Draw line in red color with thickness 1 px
                     cv.line(img, pt1, pt2, (0, 255, 0), 3)
+                    # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
 
     cv.imshow('ORB Detection Test', img)
     if cv.waitKey(10) & 0xFF == 27:

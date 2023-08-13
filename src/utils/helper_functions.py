@@ -131,6 +131,7 @@ def match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_ne
         matches = best_matches
     return matches
 
+
 def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):
     color_gray = (200, 200, 200)
     color_black = (0, 0, 0)

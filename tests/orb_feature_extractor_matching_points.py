@@ -174,6 +174,11 @@ while True:
     if len(pts1) > 0:
         pts1 = np.vstack(pts1)
         pts2 = np.vstack(pts2)
+        # discard points that has a distance smaller than min_disparity or larger than max_disparity using np.linalg.norm(np.array(pt1) - np.array(pt2))
+        dist = np.linalg.norm(np.array(pts1) - np.array(pts2), axis=1)
+        dist_criteria = np.logical_and(dist > min_disparity, dist < max_disparity)
+        pts1 = pts1[dist_criteria]
+        pts2 = pts2[dist_criteria]
     # if prev_kp is not None and prev_des is not None and len(des) > min_n_matches:
     if len(pts1) > min_n_matches:
         # matches = match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_neighbors=0)
