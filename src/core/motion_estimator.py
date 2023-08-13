@@ -1,8 +1,6 @@
 import numpy as np
 import cv2 as cv
 from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
-from sklearn.neighbors import NearestNeighbors
-import matplotlib.pyplot as plt
 from time import perf_counter
 
 import utils.screen_capture as sc
@@ -43,10 +41,12 @@ cell_height = height // grid_size[1]
 grid_prev_kp = [[[None] for _ in range(grid_size[0])] for _ in range(grid_size[1])]
 grid_prev_des = [[[None] for _ in range(grid_size[0])] for _ in range(grid_size[1])]
 
+cv.namedWindow('ORB Detection Test', cv.WINDOW_NORMAL)
+
 def f(x=None):
     return
 
-cv.createTrackbar('Max Features', 'ORB Detection Test', 5000, N, f)
+cv.createTrackbar('Max Features', 'ORB Detection Test', 5000, 5000, f)
 cv.createTrackbar('Scale Factor (x10)', 'ORB Detection Test', 20, 40, f)
 cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
 cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
@@ -82,6 +82,7 @@ matches = None
 pixel_coords, prev_pixel_coords = None, None
 
 while True:
+    img = cap.capture()
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
     nfeatures = cv.getTrackbarPos('Max Features', 'ORB Detection Test')
@@ -121,8 +122,8 @@ while True:
 
             # Adjust the keypoint positions
             for k in cell_kp:
-                # k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
-                k.pt = tuple(map(sum, zip(k.pt, (i * cell_width, j * cell_height))))
+                k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
+                # k.pt = tuple(map(sum, zip(k.pt, (i * cell_width, j * cell_height))))
 
             if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and (len(cell_kp) >= min_n_matches//(np.prod(np.array(grid_size)-2)) and len(cell_kp) > 0):
                 matches = match_points(matcher, grid_prev_des[j][i], cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
@@ -141,60 +142,58 @@ while True:
         pts1 = np.vstack(pts1)
         pts2 = np.vstack(pts2)
 
-    if len(pts1) > subsample_size:
-        subsample_idx = np.random.choice(len(pts1), size=subsample_size, replace=False)
-        E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp, method=cv.RANSAC,
-                                         prob=0.999999, threshold=1, maxIters=maxIters)
-        # Create a full-sized mask, default to 0
-        mask = np.zeros(len(pts1), dtype=np.uint8)
+        if len(pts1) > subsample_size:
+            subsample_idx = np.random.choice(len(pts1), size=subsample_size, replace=False)
+            E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp, method=cv.RANSAC,
+                                             prob=0.999999, threshold=1, maxIters=maxIters)
+            # Create a full-sized mask, default to 0
+            mask = np.zeros(len(pts1), dtype=np.uint8)
 
-        # Set the values of the full-sized mask according to the submask
-        mask[subsample_idx] = submask.ravel()
-        pts1 = pts1[mask == 1]
-        pts2 = pts2[mask == 1]
-    else:
-        E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.RANSAC, prob=0.999999, threshold=1,
-                                      maxIters=maxIters)  # Decrease maxIters
-        pts1 = pts1[mask.ravel() == 1]
-        pts2 = pts2[mask.ravel() == 1]
+            # Set the values of the full-sized mask according to the submask
+            mask[subsample_idx] = submask.ravel()
+            pts1 = pts1[mask == 1]
+            pts2 = pts2[mask == 1]
+        else:
+            E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.RANSAC, prob=0.999999, threshold=1,
+                                          maxIters=maxIters)  # Decrease maxIters
+            pts1 = pts1[mask.ravel() == 1]
+            pts2 = pts2[mask.ravel() == 1]
 
-    t3 = perf_counter() - t0 - t1 - t2
+        t3 = perf_counter() - t0 - t1 - t2
 
-    if len(pts1) > 0:
-        _, R, t, _ = cv.recoverPose(E, pts1, pts2)
-        t4 = perf_counter() - t0 - t1 - t2 - t3
-        # t1 is the ORB instance creation time, t2 is keypoint and matches time, t3 is the essential matrix calculation time, t4 is the recover pose time
-        # print the times in ms with 2 decimal places and the name of the time
-        print(f"ORB instance creation time: {t1 * 1000:.2f} ms", f"keypoint and matches time: {t2 * 1000:.2f} ms", f"essential matrix calculation time: {t3 * 1000:.2f} ms", f"recover pose time: {t4 * 1000:.2f} ms", sep='\t')
+        if len(pts1) > 0:
+            _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+            t4 = perf_counter() - t0 - t1 - t2 - t3
+            # t1 is the ORB instance creation time, t2 is keypoint and matches time, t3 is the essential matrix calculation time, t4 is the recover pose time
+            # print the times in ms with 2 decimal places and the name of the time
+            print(f"keypoint and matches time: {t2 * 1000:.2f} ms", f"essential matrix calculation time: {t3 * 1000:.2f} ms", f"recover pose time: {t4 * 1000:.2f} ms", "total time: {:.2f} ms".format((t1 + t2 + t3 + t4) * 1000), " FPS: ", int(1/(t1 + t2 + t3 + t4)))
 
-    velocity_dir = R.dot(t.reshape(3, 1))
-    velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
-    pixel_coords_hom = np.dot(K, velocity_dir)
-    pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2]).astype(int).flatten()
+        velocity_dir = R.dot(t.reshape(3, 1))
+        velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
+        pixel_coords_hom = np.dot(K, velocity_dir)
+        pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2]).astype(int).flatten()
 
-    print(len(pixel_coords))
+        if len(pixel_coords) == 4:
+            pixel_coords = [pixel_coords[0], pixel_coords[2]]
 
-    if len(pixel_coords) == 4:
-        pixel_coords = [pixel_coords[0], pixel_coords[2]]
+        # clamp pixel_coords to the image size
+        pixel_coords[0] = max(0, min(pixel_coords[0], width))
+        pixel_coords[1] = max(0, min(pixel_coords[1], height))
 
-    # clamp pixel_coords to the image size
-    pixel_coords[0] = max(0, min(pixel_coords[0], width))
-    pixel_coords[1] = max(0, min(pixel_coords[1], height))
+        # Draw the cross at the projected point
+        draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
+        # draw a point in the middle of the screen
+        img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness + 1)
+        img = cv.circle(img, (width // 2, height // 2), radius - 1, color_white, thickness)
 
-    # Draw the cross at the projected point
-    draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
-    # draw a point in the middle of the screen
-    img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness + 1)
-    img = cv.circle(img, (width // 2, height // 2), radius - 1, color_white, thickness)
-
-    # draw a circle at the projected point
-    if prev_pixel_coords is None:  # first frame
-        prev_pixel_coords = np.array(pixel_coords)
-    else:
-        pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
-        prev_pixel_coords = pixel_coords
-    img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness + 2)
-    img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
+        # draw a circle at the projected point
+        if prev_pixel_coords is None:  # first frame
+            prev_pixel_coords = np.array(pixel_coords)
+        else:
+            pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
+            prev_pixel_coords = pixel_coords
+        img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness + 2)
+        img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
 
     if len(pts2)>0:
         # add text to image with len(matches)
