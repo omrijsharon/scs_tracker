@@ -4,6 +4,7 @@ from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_i
 from time import perf_counter
 import multiprocessing.pool as mpp
 import utils.screen_capture as sc
+from utils.pool_helper import convert_tuple_to_keypoints, convert_keypoints_to_tuple
 
 
 # initiate pool
@@ -126,6 +127,7 @@ while True:
             # Compute keypoints and descriptors for each cell
             cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
             cell_kp, cell_des = orb.detectAndCompute(cell, None)
+
             is_any_kp = len(cell_kp) > 0
             min_n_matches_per_cell = min_n_matches//(np.prod(np.array(grid_size)-2))
             is_kp_more_than_min_n_matches = len(cell_kp) >= min_n_matches_per_cell

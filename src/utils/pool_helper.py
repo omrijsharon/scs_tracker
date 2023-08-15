@@ -1,4 +1,6 @@
 import numpy as np
+import cv2 as cv
+
 
 # slice the image into cells
 def slice_image_to_grid_cells(img, cell_width, cell_height, grid_size):
@@ -12,7 +14,10 @@ def slice_image_to_grid_cells(img, cell_width, cell_height, grid_size):
     return [[img[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width] if 0 < i < grid_size[0]-1 and 0 < j < grid_size[1]-1 else None for i in range(grid_size[0])] for j in range(grid_size[1])]
 
 
-def process_cell(orb, matcher, cell_gray, cell_idx, cell_width, cell_height, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, min_n_matches_per_cell):
+def process_cell(args):
+    orb_parameters, cell_gray, cell_idx, cell_width, cell_height, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, min_n_matches_per_cell = args
+    orb = cv.ORB_create(**orb_parameters, scoreType=cv.ORB_HARRIS_SCORE)
+    matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
     j, i = cell_idx # cell_idx is a tuple of (row, col)
     pts1_array = np.array([])
     pts2_array = np.array([])
@@ -23,6 +28,7 @@ def process_cell(orb, matcher, cell_gray, cell_idx, cell_width, cell_height, cel
         k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
         # k.pt = tuple(map(sum, zip(k.pt, (i * cell_width, j * cell_height))))
     if cell_prev_kp is not None:  # not first frame
+        cell_prev_kp = convert_tuple_to_keypoints(cell_prev_kp)
         if len(cell_prev_kp) > 1 and len(cell_prev_des) > 1 and is_kp_more_than_min_n_matches and is_any_kp:
             if cell_matches_prev_idx is None:  # first pair of frames
                 prev_des = cell_prev_des
@@ -44,6 +50,12 @@ def process_cell(orb, matcher, cell_gray, cell_idx, cell_width, cell_height, cel
                 cell_matches_prev_idx = None
 
     # assign cell_kp to grid_prev_kp
-    cell_prev_kp = cell_kp
+    cell_prev_kp = convert_keypoints_to_tuple(cell_kp)
     cell_prev_des = cell_des
-    return cell_prev_kp, cell_prev_des, cell_matches_prev_idx, pts1_array, pts2_array
+    return cell_idx, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, pts1_array, pts2_array
+
+def convert_keypoints_to_tuple(kp):
+    return tuple({'angle': k.angle, 'class_id': k.class_id, 'octave': k.octave, 'x': k.pt[0], 'y': k.pt[1], 'response': k.response, 'size': k.size} for k in kp)
+
+def convert_tuple_to_keypoints(kp):
+    return [cv.KeyPoint(**k) for k in kp]
