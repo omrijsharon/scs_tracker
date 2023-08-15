@@ -1,10 +1,12 @@
 import numpy as np
 import cv2 as cv
-from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
+from multiprocessing import Pool
+
 from time import perf_counter
 import multiprocessing.pool as mpp
+from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
 import utils.screen_capture as sc
-
+from utils.pool_helper import slice_image_to_grid_cells, process_cell
 
 # initiate pool
 pool = mpp.ThreadPool(processes=1)
@@ -84,7 +86,6 @@ else:
     raise ValueError('matcher_type must be "bf" or "flann"')
 
 velocity_dir = None
-matches = None
 pixel_coords, prev_pixel_coords = None, None
 
 while True:
@@ -112,6 +113,7 @@ while True:
     max_matches_per_cell = -1 if max_matches_per_cell == 0 else max_matches_per_cell
     min_n_matches = cv.getTrackbarPos('Min Matches', 'ORB Detection Test')
     min_n_matches = 10 if min_n_matches < 10 else min_n_matches
+    min_n_matches_per_cell = min_n_matches // (np.prod(np.array(grid_size) - 2))
     p = cv.getTrackbarPos('p', 'ORB Detection Test') / 100.0
     p = 0.01 if p == 0 else p
     is_draw_keypoints = bool(cv.getTrackbarPos('draw keypoints?', 'ORB Detection Test'))
@@ -119,44 +121,16 @@ while True:
     pts1 = []
     pts2 = []
     t0 = perf_counter()
-    orb = cv.ORB_create(nfeatures=nfeatures // total_cells, scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K, edgeThreshold=edgeThreshold, fastThreshold=fastThreshold, scoreType=cv.ORB_HARRIS_SCORE)
+    # create a dict of the parameters for the ORB detector
+    orb_parameters = {'nfeatures': nfeatures // total_cells, 'scaleFactor': scaleFactor, 'nlevels': nlevels, 'WTA_K': WTA_K, 'edgeThreshold': edgeThreshold, 'fastThreshold': fastThreshold}
+    orb = cv.ORB_create(**orb_parameters, scoreType=cv.ORB_HARRIS_SCORE)
     t1 = perf_counter() - t0
+    sliced_gray = slice_image_to_grid_cells(gray, cell_width, cell_height, grid_size)
     for i in range(1, grid_size[0]-1):
         for j in range(1, grid_size[1]-1):
-            # Compute keypoints and descriptors for each cell
-            cell = gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width]
-            cell_kp, cell_des = orb.detectAndCompute(cell, None)
-            is_any_kp = len(cell_kp) > 0
-            min_n_matches_per_cell = min_n_matches//(np.prod(np.array(grid_size)-2))
-            is_kp_more_than_min_n_matches = len(cell_kp) >= min_n_matches_per_cell
-            # Adjust the keypoint positions
-            for k in cell_kp:
-                k.pt = (k.pt[0] + i * cell_width, k.pt[1] + j * cell_height)
-                # k.pt = tuple(map(sum, zip(k.pt, (i * cell_width, j * cell_height))))
-            if grid_prev_kp[j][i] is not None: # not first frame
-                if len(grid_prev_kp[j][i]) > 1 and len(grid_prev_des[j][i]) > 1 and is_kp_more_than_min_n_matches and is_any_kp:
-                    if grid_matches_prev_idx[j][i] is None: # first pair of frames
-                        prev_des = grid_prev_des[j][i]
-                    else:
-                        # check if all the indices in grid_matches_prev_idx[j][i] are valid
-                        valid_matches = ([0 <= idx < len(grid_prev_des[j][i]) for idx in grid_matches_prev_idx[j][i]])
-                        if len(grid_matches_prev_idx[j][i]) <= min_n_matches_per_cell or any(valid_matches):
-                            prev_des = grid_prev_des[j][i]
-                        else:
-                            grid_matches_prev_idx[j][i] = np.array(grid_matches_prev_idx[j][i])[valid_matches]
-                            prev_des = np.take(grid_prev_des[j][i], grid_matches_prev_idx[j][i], axis=0)
-                    # matches = match_points(matcher, prev_des, cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
-                    matches = matcher.match(prev_des, cell_des)
-                    matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
-                    pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
-                    pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
-                    grid_matches_prev_idx[j][i] = [m.trainIdx for m in matches]
-                    if len(grid_matches_prev_idx[j][i]) == 0:
-                        grid_matches_prev_idx[j][i] = None
-
-            # assign cell_kp to grid_prev_kp
-            grid_prev_kp[j][i] = cell_kp
-            grid_prev_des[j][i] = cell_des
+            grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], pts1_array, pts2_array = process_cell(orb, matcher, sliced_gray[j][i], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell)
+            pts1.extend(pts1_array)
+            pts2.extend(pts2_array)
 
     t2 = perf_counter() - t0 - t1
 
@@ -231,16 +205,15 @@ while True:
         cv.putText(img, str(int(1/(perf_counter() - t0))) + "FPS", (10, 450), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
 
     if is_draw_keypoints:
-        if matches is not None:
-            if len(pts2) > min_n_matches:
-                # draw a line between each keypoint and its maching keypoint from the previous frame
-                # Loop over the matches and draw lines between matching points
-                for pt1, pt2 in zip(pts1, pts2):
-                    pt1 = tuple(np.round(pt1).astype(int))
-                    pt2 = tuple(np.round(pt2).astype(int))
-                    # Draw line in red color with thickness 1 px
-                    cv.line(img, pt1, pt2, (0, 255, 0), 3)
-                    # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        if len(pts2) > min_n_matches:
+            # draw a line between each keypoint and its maching keypoint from the previous frame
+            # Loop over the matches and draw lines between matching points
+            for pt1, pt2 in zip(pts1, pts2):
+                pt1 = tuple(np.round(pt1).astype(int))
+                pt2 = tuple(np.round(pt2).astype(int))
+                # cv.arrowedLine(img, pt1, pt2, (0, 255, 0), 2, tipLength=0.3)
+                cv.arrowedLine(img, pt2, pt1, (0, 255, 0), 2, tipLength=0.3)
+                # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
 
     cv.imshow('ORB Detection Test', img)
@@ -250,4 +223,4 @@ while True:
 cv.destroyAllWindows()
 cap.close()
 
-# end of the code
+# end of the codeth
