@@ -149,7 +149,7 @@ while True:
                             prev_des = np.take(grid_prev_des[j][i], grid_matches_prev_idx[j][i], axis=0)
                     # matches = match_points(matcher, prev_des, cell_des, min_disparity=min_disparity, max_disparity=max_disparity, n_neighbors=0)
                     matches = matcher.match(prev_des, cell_des)
-                    matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
+                    matches = sorted(matches, key=lambda x: x.distance, reverse=True)[:max_matches_per_cell]
                     pts1.extend(np.float32([grid_prev_kp[j][i][m.queryIdx].pt for m in matches]).reshape(-1, 2))
                     pts2.extend(np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2))
                     grid_matches_prev_idx[j][i] = [m.trainIdx for m in matches]

@@ -9,7 +9,9 @@ import utils.screen_capture as sc
 from utils.pool_helper import slice_image_to_grid_cells, process_cell
 
 if __name__ == '__main__':
-    n_grid_cells = 8
+    n_grid_cells = 4
+    n_cells_to_skip_start = 0
+    n_cells_to_skip_end = 1
     min_n_matches = 9
     max_disparity = 27
     marker_size = 10
@@ -30,6 +32,8 @@ if __name__ == '__main__':
     hfov = 120
     cell_size = (cap.monitor["width"] / n_grid_cells, cap.monitor["height"] / n_grid_cells)
     img = cap.capture()
+    # resize image to half its size
+    img = cv.resize(img, (0, 0), fx=0.5, fy=0.5)
     v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / img.shape[1]))
     K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
     focal = K[0, 0]
@@ -51,15 +55,15 @@ if __name__ == '__main__':
     def f(x=None):
         return
 
-    cv.createTrackbar('Max Features', 'ORB Detection Test', 2800, 5000, f)
+    cv.createTrackbar('Max Features', 'ORB Detection Test', 5000, 10000, f)
     cv.createTrackbar('Scale Factor (x10)', 'ORB Detection Test', 20, 40, f)
     cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
     cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
     cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
     cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-    cv.createTrackbar('fastThreshold', 'ORB Detection Test', 40, 100, f)
-    cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 50, 250, f)
-    cv.createTrackbar('maxIters', 'ORB Detection Test', 40, 500, f)
+    cv.createTrackbar('fastThreshold', 'ORB Detection Test', 50, 100, f)
+    cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 250, 1000, f)
+    cv.createTrackbar('maxIters', 'ORB Detection Test', 20, 500, f)
     cv.createTrackbar('Min Disparity', 'ORB Detection Test', 7, max_disparity, f)
     cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', 0, 100, f)
     cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
@@ -88,6 +92,7 @@ if __name__ == '__main__':
     pool = Pool()
     while True:
         img = cap.capture()
+        img = cv.resize(img, (0, 0), fx=0.5, fy=0.5)
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
         nfeatures = cv.getTrackbarPos('Max Features', 'ORB Detection Test')
@@ -111,7 +116,7 @@ if __name__ == '__main__':
         max_matches_per_cell = -1 if max_matches_per_cell == 0 else max_matches_per_cell
         min_n_matches = cv.getTrackbarPos('Min Matches', 'ORB Detection Test')
         min_n_matches = 10 if min_n_matches < 10 else min_n_matches
-        min_n_matches_per_cell = min_n_matches // (np.prod(np.array(grid_size) - 2))
+        min_n_matches_per_cell = min_n_matches # // (np.prod(np.array(grid_size) - 2))
         p = cv.getTrackbarPos('p', 'ORB Detection Test') / 100.0
         p = 0.01 if p == 0 else p
         is_draw_keypoints = bool(cv.getTrackbarPos('draw keypoints?', 'ORB Detection Test'))
@@ -125,7 +130,8 @@ if __name__ == '__main__':
         # sliced_gray = slice_image_to_grid_cells(gray, cell_width, cell_height, grid_size)
 
         # prepare arg list for process_cell pool map
-        args_list = [(orb_parameters, gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell) for i in range(1, grid_size[0]-1) for j in range(1, grid_size[1]-1)]
+        # args_list = [(orb_parameters, gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell, max_matches_per_cell) for i in range(n_cells_to_skip_start, grid_size[0]-n_cells_to_skip_end) for j in range(n_cells_to_skip_start, grid_size[1]-n_cells_to_skip_end)]
+        args_list = [(orb_parameters, gray[j * cell_height + cell_height//2:(j + 1) * cell_height + cell_height//2, i * cell_width + cell_width//2:(i + 1) * cell_width + cell_width//2], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell, max_matches_per_cell) for i in range(n_cells_to_skip_start, grid_size[0]-n_cells_to_skip_end) for j in range(n_cells_to_skip_start, grid_size[1]-n_cells_to_skip_end)]
 
         # with Pool() as pool:
         #     results = pool.map(process_cell, args_list)
@@ -136,6 +142,7 @@ if __name__ == '__main__':
         #     results = list(executor.map(process_cell, args_list))
 
         # Process the results
+        number_of_matches_per_cell = [[result[0], len(result[5])] for result in results]
         for result in results:
             cell_idx, cell_kp, cell_des, cell_grid_matches_prev_idx, cell_pts1, cell_pts2 = result
             j, i = cell_idx
@@ -218,10 +225,16 @@ if __name__ == '__main__':
             img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
 
         if len(pts2)>0:
+            fps = int(1 / (perf_counter() - t0))
             # add text to image with len(matches)
-            cv.putText(img, str(len(pts2)), (10, 500), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
+            cv.putText(img, str(len(pts2)), (10, 50), cv.FONT_HERSHEY_SIMPLEX, 1,
+                       (0, 0, 0), 4, cv.LINE_AA)
+            cv.putText(img, str(fps) + "FPS", (10, 100), cv.FONT_HERSHEY_SIMPLEX, 1,
+                       (0, 0, 0), 4, cv.LINE_AA)
+
+            cv.putText(img, str(len(pts2)), (10, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
             # add text of fps which is 1/(perf_counter() - t0)
-            cv.putText(img, str(int(1/(perf_counter() - t0))) + "FPS", (10, 450), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
+            cv.putText(img, str(fps) + "FPS", (10, 100), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
 
         if is_draw_keypoints:
             if len(pts2) > min_n_matches:
@@ -233,6 +246,14 @@ if __name__ == '__main__':
                     # cv.arrowedLine(img, pt1, pt2, (0, 255, 0), 2, tipLength=0.3)
                     cv.arrowedLine(img, pt2, pt1, (0, 255, 0), 2, tipLength=0.3)
                     # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                # write a text in the middle of each grid cell of the number of matches in that cell using number_of_matches_per_cell
+                for cell_idx, n_matches in number_of_matches_per_cell:
+                    j, i = cell_idx
+                    if n_matches > 0:
+                        # cv.putText(img, str(n_matches), (i * cell_width + cell_width // 2, j * cell_height + cell_height // 2), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 6)
+                        # cv.putText(img, str(n_matches), (i * cell_width + cell_width // 2, j * cell_height + cell_height // 2), cv.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+                        cv.putText(img, str(n_matches), (i * cell_width + cell_width, j * cell_height + cell_height), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 6)
+                        cv.putText(img, str(n_matches), (i * cell_width + cell_width, j * cell_height + cell_height), cv.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
 
 
         cv.imshow('ORB Detection Test', img)
