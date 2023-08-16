@@ -6,13 +6,14 @@ from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
 import utils.screen_capture as sc
-from utils.pool_helper import slice_image_to_grid_cells, process_cell
+from utils.pool_helper import slice_image_to_grid_cells, process_cell, calculate_essential_recover_pose
 
 if __name__ == '__main__':
     n_grid_cells = 4
     n_cells_to_skip_start = 0
     n_cells_to_skip_end = 1
     min_n_matches = 9
+    essential_n_processes = 4
     max_disparity = 27
     marker_size = 10
     p = 0.5
@@ -133,8 +134,6 @@ if __name__ == '__main__':
         # args_list = [(orb_parameters, gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell, max_matches_per_cell) for i in range(n_cells_to_skip_start, grid_size[0]-n_cells_to_skip_end) for j in range(n_cells_to_skip_start, grid_size[1]-n_cells_to_skip_end)]
         args_list = [(orb_parameters, gray[j * cell_height + cell_height//2:(j + 1) * cell_height + cell_height//2, i * cell_width + cell_width//2:(i + 1) * cell_width + cell_width//2], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell, max_matches_per_cell) for i in range(n_cells_to_skip_start, grid_size[0]-n_cells_to_skip_end) for j in range(n_cells_to_skip_start, grid_size[1]-n_cells_to_skip_end)]
 
-        # with Pool() as pool:
-        #     results = pool.map(process_cell, args_list)
         async_results = [pool.apply_async(process_cell, (args,)) for args in args_list]
         results = [async_result.get() for async_result in async_results]
 
@@ -170,44 +169,18 @@ if __name__ == '__main__':
             pts2 = pts2[dist_criteria]
 
         if len(pts1) > min_n_matches:
+            args_list = [(pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters) for _ in range(essential_n_processes)]
+            async_results = [pool.apply_async(calculate_essential_recover_pose, (args,)) for args in args_list]
+            results = [async_result.get() for async_result in async_results]
 
-            if len(pts1) > subsample_size:
-                subsample_idx = np.random.choice(len(pts1), size=subsample_size, replace=False)
-                E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp, method=cv.RANSAC,
-                                                 prob=0.999999, threshold=1, maxIters=maxIters)
-                # Create a full-sized mask, default to 0
-                mask = np.zeros(len(pts1), dtype=np.uint8)
-
-                # Set the values of the full-sized mask according to the submask
-                mask[subsample_idx] = submask.ravel()
-                pts1 = pts1[mask == 1]
-                pts2 = pts2[mask == 1]
-            else:
-                E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.RANSAC, prob=0.999999, threshold=1,
-                                              maxIters=maxIters)  # Decrease maxIters
-                pts1 = pts1[mask.ravel() == 1]
-                pts2 = pts2[mask.ravel() == 1]
+            pixel_coords = np.zeros(2)
+            for result in results:
+                pixel_coords += np.array(result) / essential_n_processes
 
             t3 = perf_counter() - t0 - t1 - t2
-
-            if len(pts1) > 0:
-                _, R, t, _ = cv.recoverPose(E, pts1, pts2)
-                t4 = perf_counter() - t0 - t1 - t2 - t3
-                # t1 is the ORB instance creation time, t2 is keypoint and matches time, t3 is the essential matrix calculation time, t4 is the recover pose time
-                # print the times in ms with 2 decimal places and the name of the time
-                print(f"keypoint and matches time: {t2 * 1000:.2f} ms", f"essential matrix calculation time: {t3 * 1000:.2f} ms", f"recover pose time: {t4 * 1000:.2f} ms", "total time: {:.2f} ms".format((t1 + t2 + t3 + t4) * 1000), " FPS: ", int(1/(t1 + t2 + t3 + t4)))
-
-            velocity_dir = R.dot(t.reshape(3, 1))
-            velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
-            pixel_coords_hom = np.dot(K, velocity_dir)
-            pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2]).astype(int).flatten()
-
-            if len(pixel_coords) == 4:
-                pixel_coords = [pixel_coords[0], pixel_coords[2]]
-
-            # clamp pixel_coords to the image size
-            pixel_coords[0] = max(0, min(pixel_coords[0], width))
-            pixel_coords[1] = max(0, min(pixel_coords[1], height))
+            print(f"keypoint and matches time: {t2 * 1000:.2f} ms",
+                  f"essential matrix calculation time: {t3 * 1000:.2f} ms",
+                  "total time: {:.2f} ms".format((t1 + t2 + t3) * 1000), " FPS: ", int(1 / (t1 + t2 + t3)))
 
             # Draw the cross at the projected point
             draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
@@ -221,6 +194,7 @@ if __name__ == '__main__':
             else:
                 pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
                 prev_pixel_coords = pixel_coords
+            pixel_coords = pixel_coords.astype(int)
             img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness + 2)
             img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
 

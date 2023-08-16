@@ -73,3 +73,36 @@ def convert_keypoints_to_tuple(kp):
 
 def convert_tuple_to_keypoints(kp):
     return [cv.KeyPoint(**k) for k in kp]
+
+
+def calculate_essential_recover_pose(args):
+    pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters = args
+    if len(pts1) > subsample_size:
+        subsample_idx = np.random.choice(len(pts1), size=subsample_size, replace=False)
+        E, submask = cv.findEssentialMat(pts1[subsample_idx], pts2[subsample_idx], focal, pp, method=cv.RANSAC,
+                                         prob=0.999999, threshold=1, maxIters=maxIters)
+        mask = np.zeros(len(pts1), dtype=np.uint8)
+        mask[subsample_idx] = submask.ravel()
+        pts1 = pts1[mask == 1]
+        pts2 = pts2[mask == 1]
+    else:
+        E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.FM_RANSAC, prob=0.999999, threshold=1,
+                                      maxIters=maxIters)
+        pts1 = pts1[mask.ravel() == 1]
+        pts2 = pts2[mask.ravel() == 1]
+
+    if len(pts1) > 0:
+        _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+
+    velocity_dir = R.dot(t.reshape(3, 1))
+    velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
+    pixel_coords_hom = np.dot(K, velocity_dir)
+    pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2]).astype(int).flatten()
+
+    if len(pixel_coords) == 4:
+        pixel_coords = [pixel_coords[0], pixel_coords[2]]
+
+    pixel_coords[0] = max(0, min(pixel_coords[0], width))
+    pixel_coords[1] = max(0, min(pixel_coords[1], height))
+
+    return pixel_coords
