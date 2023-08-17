@@ -13,7 +13,7 @@ if __name__ == '__main__':
     n_cells_to_skip_start = 0
     n_cells_to_skip_end = 1
     min_n_matches = 9
-    essential_n_processes = 4
+    essential_n_processes = 8 # number of processes to use for essential matrix calculation and recover pose to get the average of coordinates
     max_disparity = 27
     marker_size = 10
     p = 0.5
@@ -169,34 +169,55 @@ if __name__ == '__main__':
             pts2 = pts2[dist_criteria]
 
         if len(pts1) > min_n_matches:
-            args_list = [(pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters) for _ in range(essential_n_processes)]
+            if len(pts1) > subsample_size:
+                # make subsample_size divisible by essential_n_processes without remainder
+                subsample_size = subsample_size - (subsample_size % essential_n_processes)
+                subsample_idx = np.random.choice(len(pts1), subsample_size, replace=False)
+                pts1 = pts1[subsample_idx]
+                pts2 = pts2[subsample_idx]
+            else:
+                # shuffle pts1 and pts2 in the same order
+                idx = np.random.permutation(len(pts1))
+                pts1 = pts1[idx]
+                pts2 = pts2[idx]
+            print("len(pts1) per process: ", len(pts1) // essential_n_processes)
+            # make arg list use pts1 and pts2 with indices from 0 to subsample_size//essential_n_processes, subsample_size//essential_n_processes to 2*subsample_size//essential_n_processes, etc.
+            args_list = [(pts1[i*subsample_size//essential_n_processes:(i+1)*subsample_size//essential_n_processes], pts2[i*subsample_size//essential_n_processes:(i+1)*subsample_size//essential_n_processes], focal, pp, K, width, height, subsample_size, maxIters) for i in range(essential_n_processes)]
             async_results = [pool.apply_async(calculate_essential_recover_pose, (args,)) for args in args_list]
             results = [async_result.get() for async_result in async_results]
 
             pixel_coords = np.zeros(2)
+            n_results = 0
             for result in results:
-                pixel_coords += np.array(result) / essential_n_processes
+                result_np = np.array(result)
+                pixel_coords += result_np
+                n_results += 1 * np.any(result_np != 0)
+            p = n_results / essential_n_processes
+            print("n_results: ", n_results, "  p = ", p * 100, "%")
+            p *= 0.5
+            if n_results > 0:
+                pixel_coords /= n_results
 
-            t3 = perf_counter() - t0 - t1 - t2
-            print(f"keypoint and matches time: {t2 * 1000:.2f} ms",
-                  f"essential matrix calculation time: {t3 * 1000:.2f} ms",
-                  "total time: {:.2f} ms".format((t1 + t2 + t3) * 1000), " FPS: ", int(1 / (t1 + t2 + t3)))
+                t3 = perf_counter() - t0 - t1 - t2
+                print(f"keypoint and matches time: {t2 * 1000:.2f} ms",
+                      f"essential matrix calculation time: {t3 * 1000:.2f} ms",
+                      "total time: {:.2f} ms".format((t1 + t2 + t3) * 1000), " FPS: ", int(1 / (t1 + t2 + t3)))
 
-            # Draw the cross at the projected point
-            draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
-            # draw a point in the middle of the screen
-            img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness + 1)
-            img = cv.circle(img, (width // 2, height // 2), radius - 1, color_white, thickness)
+                # Draw the cross at the projected point
+                draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
+                # draw a point in the middle of the screen
+                img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness + 1)
+                img = cv.circle(img, (width // 2, height // 2), radius - 1, color_white, thickness)
 
-            # draw a circle at the projected point
-            if prev_pixel_coords is None:  # first frame
-                prev_pixel_coords = np.array(pixel_coords)
-            else:
-                pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
-                prev_pixel_coords = pixel_coords
-            pixel_coords = pixel_coords.astype(int)
-            img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness + 2)
-            img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
+                # draw a circle at the projected point
+                if prev_pixel_coords is None:  # first frame
+                    prev_pixel_coords = np.array(pixel_coords)
+                else:
+                    pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
+                    prev_pixel_coords = pixel_coords
+                pixel_coords = pixel_coords.astype(int)
+                img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness + 2)
+                img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
 
         if len(pts2)>0:
             fps = int(1 / (perf_counter() - t0))
