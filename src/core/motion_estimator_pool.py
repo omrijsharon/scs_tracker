@@ -9,6 +9,7 @@ import utils.screen_capture as sc
 from utils.pool_helper import slice_image_to_grid_cells, process_cell, calculate_essential_recover_pose
 
 if __name__ == '__main__':
+    image_inv_scale = 2 # 2 for 1/2 size, 1 for original size
     n_grid_cells = 4
     n_cells_to_skip_start = 0
     n_cells_to_skip_end = 1
@@ -34,7 +35,7 @@ if __name__ == '__main__':
     cell_size = (cap.monitor["width"] / n_grid_cells, cap.monitor["height"] / n_grid_cells)
     img = cap.capture()
     # resize image to half its size
-    img = cv.resize(img, (0, 0), fx=0.5, fy=0.5)
+    img = cv.resize(img, (0, 0), fx=1/image_inv_scale, fy=1/image_inv_scale)
     v_fov = np.rad2deg(2 * np.arctan(np.tan(np.deg2rad(hfov) / 2) * img.shape[0] / img.shape[1]))
     K = create_intrinsic_matrix(*img.shape[:2][::-1], hfov, vfov=v_fov)
     focal = K[0, 0]
@@ -93,8 +94,9 @@ if __name__ == '__main__':
     pool = Pool()
     while True:
         img = cap.capture()
-        img = cv.resize(img, (0, 0), fx=0.5, fy=0.5)
+        # img = cv.resize(img, (0, 0), fx=0.5, fy=0.5)
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        gray = cv.resize(gray, (0, 0), fx=1/image_inv_scale, fy=1/image_inv_scale)
 
         nfeatures = cv.getTrackbarPos('Max Features', 'ORB Detection Test')
         nfeatures = 10 if nfeatures == 0 else nfeatures
@@ -204,10 +206,10 @@ if __name__ == '__main__':
                       "total time: {:.2f} ms".format((t1 + t2 + t3) * 1000), " FPS: ", int(1 / (t1 + t2 + t3)))
 
                 # Draw the cross at the projected point
-                draw_osd(img, width, height, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
+                draw_osd(img, width * image_inv_scale, height * image_inv_scale, radius=radius, thickness=thickness, cross_size=cross_size, outer_radius=outer_radius)
                 # draw a point in the middle of the screen
-                img = cv.circle(img, (width // 2, height // 2), radius, color_black, thickness + 1)
-                img = cv.circle(img, (width // 2, height // 2), radius - 1, color_white, thickness)
+                img = cv.circle(img, (image_inv_scale * width // 2, image_inv_scale * height // 2), radius, color_black, thickness + 1)
+                img = cv.circle(img, (image_inv_scale * width // 2, image_inv_scale * height // 2), radius - 1, color_white, thickness)
 
                 # draw a circle at the projected point
                 if prev_pixel_coords is None:  # first frame
@@ -216,8 +218,8 @@ if __name__ == '__main__':
                     pixel_coords = (p * np.array(pixel_coords) + (1 - p) * prev_pixel_coords).astype(int)
                     prev_pixel_coords = pixel_coords
                 pixel_coords = pixel_coords.astype(int)
-                img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_black, thickness + 2)
-                img = cv.circle(img, (pixel_coords[0], pixel_coords[1]), marker_size, color_white, thickness)
+                img = cv.circle(img, (image_inv_scale * pixel_coords[0], image_inv_scale * pixel_coords[1]), marker_size, color_black, thickness + 2)
+                img = cv.circle(img, (image_inv_scale * pixel_coords[0], image_inv_scale * pixel_coords[1]), marker_size, color_white, thickness)
 
         if len(pts2)>0:
             fps = int(1 / (perf_counter() - t0))
@@ -236,8 +238,8 @@ if __name__ == '__main__':
                 # draw a line between each keypoint and its maching keypoint from the previous frame
                 # Loop over the matches and draw lines between matching points
                 for pt1, pt2 in zip(pts1, pts2):
-                    pt1 = tuple(np.round(pt1).astype(int))
-                    pt2 = tuple(np.round(pt2).astype(int))
+                    pt1 = tuple(np.round(image_inv_scale * pt1).astype(int))
+                    pt2 = tuple(np.round(image_inv_scale * pt2).astype(int))
                     # cv.arrowedLine(img, pt1, pt2, (0, 255, 0), 2, tipLength=0.3)
                     cv.arrowedLine(img, pt2, pt1, (0, 255, 0), 2, tipLength=0.3)
                     # cv.putText(img, str(np.linalg.norm(np.array(pt1) - np.array(pt2)).astype(np.int8)), pt2, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
@@ -247,8 +249,8 @@ if __name__ == '__main__':
                     if n_matches > 0:
                         # cv.putText(img, str(n_matches), (i * cell_width + cell_width // 2, j * cell_height + cell_height // 2), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 6)
                         # cv.putText(img, str(n_matches), (i * cell_width + cell_width // 2, j * cell_height + cell_height // 2), cv.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
-                        cv.putText(img, str(n_matches), (i * cell_width + cell_width, j * cell_height + cell_height), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 6)
-                        cv.putText(img, str(n_matches), (i * cell_width + cell_width, j * cell_height + cell_height), cv.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+                        cv.putText(img, str(n_matches), (image_inv_scale * i * cell_width + image_inv_scale * cell_width, image_inv_scale * j * cell_height + image_inv_scale * cell_height), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 6)
+                        cv.putText(img, str(n_matches), (image_inv_scale * i * cell_width + image_inv_scale * cell_width, image_inv_scale * j * cell_height + image_inv_scale * cell_height), cv.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
 
 
         cv.imshow('ORB Detection Test', img)
