@@ -3,6 +3,7 @@ import mss
 import cv2
 from functools import partial
 
+from utils.orb_tracker import ORB_tracker
 from utils.particle import Particle, ParticlesGrid, ParticleRembg
 from utils.orb_tracker import ORB_tracker
 
@@ -42,7 +43,7 @@ rect_debug = True
 
 
 # particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
-# orb_tracker = ORB_tracker(n_features=1000, top_k_features=100, init_crop_size=201)
+# orb_tracker = ORB_tracker(init_crop_size=101)
 
 
 def track_mouse_clicked_target_with_rembg(tlwh=None, monitor_number=0):

@@ -14,7 +14,7 @@ if __name__ == '__main__':
     n_cells_to_skip_start = 0
     n_cells_to_skip_end = 1
     min_n_matches = 9
-    essential_n_processes = 8 # number of processes to use for essential matrix calculation and recover pose to get the average of coordinates
+    essential_n_processes = 4 # number of processes to use for essential matrix calculation and recover pose to get the average of coordinates
     max_disparity = 27
     marker_size = 10
     p = 0.5
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     grid_prev_kp = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
     grid_prev_des = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
     grid_matches_prev_idx = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
-
+    depth_image = np.zeros(img.shape[:2])
     cv.namedWindow('ORB Detection Test', cv.WINDOW_NORMAL)
 
     def f(x=None):
@@ -63,9 +63,9 @@ if __name__ == '__main__':
     cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
     cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
     cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-    cv.createTrackbar('fastThreshold', 'ORB Detection Test', 50, 100, f)
-    cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 250, 1000, f)
-    cv.createTrackbar('maxIters', 'ORB Detection Test', 20, 500, f)
+    cv.createTrackbar('fastThreshold', 'ORB Detection Test', 20, 100, f)
+    cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 1000, 5000, f)
+    cv.createTrackbar('maxIters', 'ORB Detection Test', 10, 500, f)
     cv.createTrackbar('Min Disparity', 'ORB Detection Test', 7, max_disparity, f)
     cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', 0, 100, f)
     cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
@@ -190,10 +190,28 @@ if __name__ == '__main__':
 
             pixel_coords = np.zeros(2)
             n_results = 0
+            pts1 = []
+            pts2 = []
+            # depth_image = np.zeros(gray.shape)
             for result in results:
-                result_np = np.array(result)
-                pixel_coords += result_np
-                n_results += 1 * np.any(result_np != 0)
+                # pixel_coord, kp_depth = result
+                pixel_coord, pt1, pt2 = result
+                pixel_coord = np.array(pixel_coord)
+                pixel_coords += pixel_coord
+                n_results += 1 * np.any(pixel_coord != 0)
+                pts1.extend(pt1)
+                pts2.extend(pt2)
+                # if kp_depth is not None:
+                #     for kp in kp_depth:
+                #         depth_image[int(kp[1]), int(kp[0])] = kp[2]
+                #     depth_image = np.log(depth_image - np.min(depth_image) + 1)
+                #     # scale the depth so the min is 0 and max is 255
+                #     # depth_image = (depth_image - np.min(depth_image))
+                #     depth_image = 255 * depth_image / np.max(depth_image)
+                #     depth_image = depth_image.astype(np.uint8)
+                #     depth_image = cv.GaussianBlur(depth_image, (3, 3), 0)
+                # # imshow depth
+                # cv.imshow('depth', depth_image)
             p = n_results / essential_n_processes
             print("n_results: ", n_results, "  p = ", p * 100, "%")
             p *= 0.5

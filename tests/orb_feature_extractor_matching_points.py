@@ -27,7 +27,7 @@ min_n_matches = 20
 max_neighbor_distance = 8
 marker_size = 10
 
-is_get_depth = False
+is_get_depth = True
 is_draw_lines = False
 is_draw_keypoints = True
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
@@ -246,6 +246,9 @@ while True:
                 homogeneous_3D = cv.triangulatePoints(P1, P2, pts1.T, pts2.T)
                 dehomo_3D = (homogeneous_3D / homogeneous_3D[3]).T
                 depths = dehomo_3D[:, 2]
+                # get an array in a format of [pixel_y, pixel_y, depth]
+                pixel_coords_depth = np.hstack([pts2, depths.reshape(-1, 1)])
+
 
         # print(t.flatten())
 
