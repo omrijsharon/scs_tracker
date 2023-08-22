@@ -29,13 +29,13 @@ def run_orb_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
     window_name = 'ORB Tracker'
     cv.namedWindow(window_name, cv.WINDOW_NORMAL)
     cv.setMouseCallback(window_name, mouse_callback)
-    cv.createTrackbar('Max Features', window_name, 5000, 10000, f)
+    cv.createTrackbar('Max Features', window_name, 500, 1000, f)
     cv.createTrackbar('Scale Factor (x10)', window_name, 15, 40, f)
     cv.createTrackbar('Levels', window_name, 8, 20, f)
     cv.createTrackbar('WTA_K (2 or 4)', window_name, 2, 4, f)
     cv.createTrackbar('edgeThreshold', window_name, 1, 50, f)
     cv.createTrackbar('patchSize', window_name, 31, 100, f)
-    cv.createTrackbar('fastThreshold', window_name, 20, 100, f)
+    cv.createTrackbar('fastThreshold', window_name, 72, 100, f)
     cv.createTrackbar('Max Matches', window_name, 0, 100, f)
     cv.createTrackbar('p', window_name, 50, 100, f)
     cv.createTrackbar('draw keypoints?', window_name, 1, 1, f)
@@ -50,10 +50,14 @@ def run_orb_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
             orb_tracker.update(gray)
             if cv.getTrackbarPos('draw keypoints?', window_name):
                 orb_tracker.draw_all_on_frame(frame)
+                # orb_tracker.draw_all_on_frame(gray)
+            else:
+                orb_tracker.draw_xy_on_frame(frame)
+        # cv.imshow(window_name, gray)
         cv.imshow(window_name, frame)
         if cv.waitKey(10) & 0xFF == 27:
             break
-
+        # time.sleep(1/10)
     cv.destroyAllWindows()
     cap.close()
 
