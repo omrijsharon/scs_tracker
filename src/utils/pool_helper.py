@@ -17,7 +17,7 @@ def slice_image_to_grid_cells(img, cell_width, cell_height, grid_size):
 def process_cell(args):
     orb_parameters, cell_gray, cell_idx, cell_width, cell_height, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, min_n_matches_per_cell, max_matches_per_cell = args
     orb = cv.ORB_create(**orb_parameters, scoreType=cv.ORB_HARRIS_SCORE)
-    matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+    matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
     j, i = cell_idx # cell_idx is a tuple of (row, col)
     pts1_array = np.array([])
     pts2_array = np.array([])
@@ -51,7 +51,18 @@ def process_cell(args):
                     else:
                         cell_matches_prev_idx = np.array(cell_matches_prev_idx)[valid_matches]
                         prev_des = np.take(cell_prev_des, cell_matches_prev_idx, axis=0)
-                matches = matcher.match(prev_des, cell_des)
+                # matches = matcher.match(prev_des, cell_des)
+                matches = matcher.knnMatch(prev_des, cell_des, k=2)
+                # handle if there are no matches or only one match in knn
+                if len(matches) == 0:
+                    cell_prev_kp = None
+                    cell_prev_des = None
+                    cell_matches_prev_idx = None
+                try:
+                    matches = [m for match_set in matches for m, n in (match_set[:2],) if
+                               len(match_set) > 1 and m.distance < 0.75 * n.distance]
+                except:
+                    ValueError("matches is empty")
                 # matches = sorted(matches, key=lambda x: x.distance)
                 # print the mean and std of the matches distance
                 # print("mean: ", np.mean([m.distance for m in matches]), "std: ", np.std([m.distance for m in matches]))

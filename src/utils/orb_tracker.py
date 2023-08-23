@@ -3,17 +3,20 @@ import cv2
 import warnings
 from itertools import compress
 
+from utils.helper_functions import match_ratio_test, filter_unique_matches, kp_mean_and_std
+
 
 class ORB_tracker:
     def __init__(self, init_crop_size=201):
         self.orb = cv2.ORB_create(scoreType=cv2.ORB_HARRIS_SCORE)
-        self.proximity_radius = 41
+        self.proximity_radius = 31
         self.std_dist_from_mean = 1
         self.crop_size_scale = 201
         self.min_kp_matches = 10
         self.min_crop_size = 21
-        self.max_crop_size = 71
+        self.max_crop_size = 111
         self.max_des_array_size = 500
+        self.xy_smooth_factor = 0.3
         self.last_keypoints = None
         self.last_descriptors = None
         self.descriptors_array = None
@@ -27,6 +30,7 @@ class ORB_tracker:
         self.next_crop_size = (init_crop_size, init_crop_size)
         self.init_crop_size = init_crop_size
         self.xy = None
+        self.xy_follow = None
         self.is_initialized = False
         self.is_successful = True
 
@@ -42,6 +46,7 @@ class ORB_tracker:
         self.next_crop_bottom_right = None
         self.next_crop_size = (self.init_crop_size, self.init_crop_size)
         self.xy = xy
+        self.xy_follow = np.array(xy)
         cropped_frame = self.crop_frame(frame)
         # compute keypoints and descriptors
         keypoints, descriptors = self.orb.detectAndCompute(cropped_frame, None)
@@ -69,7 +74,6 @@ class ORB_tracker:
             raise Exception('Run reset() before update()')
         cropped_frame = self.crop_frame(frame)
         keypoints, descriptors = self.orb.detectAndCompute(cropped_frame, None)
-        print("len(keypoints): ", len(keypoints))
         if len(keypoints) == 0:
             warnings.warn('No keypoints found. Searching in the whole frame')
             self.orb.setMaxFeatures(5000)
@@ -94,49 +98,44 @@ class ORB_tracker:
             return None, None
         if self.is_successful:
             self.correct_keypoints_coordinates(keypoints)
-        print("len(descriptors): ", len(descriptors))
         if self.descriptors_array is None:
-            matches = self.matcher.knnMatch(self.last_descriptors, descriptors, k=2)
+            matches = match_ratio_test(self.matcher, self.last_descriptors, descriptors)
             # matches = self.matcher.match(self.last_descriptors, descriptors)
         else:
-            matches = self.matcher.knnMatch(self.descriptors_array, descriptors, k=2)
+            matches = match_ratio_test(self.matcher, self.descriptors_array, descriptors)
             # matches = self.matcher.match(self.descriptors_array, descriptors)
-        if matches is None: # no matches
+        if len(matches) == 0: # no matches
             warnings.warn('No matches found')
             # self._update_variables(keypoints, descriptors)
             self.is_successful = False
             return None, None
         else: # matches found
-            # if self.is_successful is False:
-            #     print(f"!!!! found {len(matches)} matches, found {len(keypoints)} keypoints, descriptors_array len: {len(self.descriptors_array)}")
-            # apply ratio test
-            print("len(matches): ", len(matches))
-            try:
-                matches = [m for m, n in matches if m.distance < 0.75 * n.distance]
-                # take only unique matches of trainIdx
-                matches = sorted(matches, key=lambda x: x.trainIdx)
-                matches = [matches[i] for i in range(len(matches)) if i == 0 or matches[i].trainIdx != matches[i-1].trainIdx]
-            except:
-                matches = []
+            # take only unique matches of trainIdx
+            matches = filter_unique_matches(matches)
             # matches = sorted(matches, key=lambda x: x.distance)
             if len(matches) > 0:
                 # filter descriptors by matches
                 if self.is_successful:
-                    print(matches[0])
                     # self.add_to_descriptors_array(descriptors[[m.trainIdx for m in matches]])
                     self.update_descriptors_memory(descriptors[[m.trainIdx for m in matches]])
                 # prev_pts = np.float32([self.last_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-                mean, std = self.get_mean_and_std_from_kp(keypoints)
+                mean, std = kp_mean_and_std(keypoints)
                 print("num of matches: ", len(matches))
                 if len(matches) < self.min_kp_matches:
                     matches = None
                 self._update_variables(keypoints, descriptors, matches)
                 self.xy = mean.astype(int)
+                self.xy_follow = self.xy_smooth_factor * self.xy + (1 - self.xy_smooth_factor) * self.xy_follow
                 # self.next_crop_size = tuple(np.clip((self.crop_size_scale * std.reshape(-1)).astype(int), self.min_crop_size, self.max_crop_size))
                 self.next_crop_size = (201, 201)
                 print("next_crop_size: ",self.next_crop_size)
                 self.is_successful = True
                 # return next_pts.astype(np.int32), len(matches)
+            else:
+                warnings.warn('No matches found')
+                # self._update_variables(keypoints, descriptors)
+                self.is_successful = False
+                return None, None
 
     def grid_of_keypoints(self, cropped_frame, keypoints):
         """
@@ -199,11 +198,8 @@ class ORB_tracker:
         dist = self.calc_dist_of_kp_from_xy(keypoints)
         return list(compress(keypoints, dist < self.proximity_radius)), descriptors[dist < self.proximity_radius]
 
-    def get_mean_and_std_from_kp(self, keypoints):
-        return np.mean(np.array([kp.pt for kp in keypoints]), axis=0), np.std(np.array([kp.pt for kp in keypoints]), axis=0)
-
     def filter_kp_and_des_by_std_dist_from_mean(self, keypoints, des):
-        mean, std = self.get_mean_and_std_from_kp(keypoints)
+        mean, std = kp_mean_and_std(keypoints)
         dist = np.linalg.norm(np.array([kp.pt for kp in keypoints]) - mean, axis=1)
         # mask = np.any((dist.reshape(-1, 1) < self.std_dist_from_mean * std), axis=1)
         mask = np.any((dist.reshape(-1, 1) < self.proximity_radius), axis=1)
@@ -228,6 +224,7 @@ class ORB_tracker:
             self.draw_crop_rect_on_frame(frame)
             self.draw_keypoints_on_frame(frame)
             self.draw_xy_on_frame(frame)
+            self.draw_cross_on_xy_follow(frame, 5, 10, 5, 2)
 
 
     def correct_keypoints_coordinates(self, keypoints):
@@ -294,6 +291,29 @@ class ORB_tracker:
                 self.descriptors_array_score = np.array(self.descriptors_array_score[-self.max_des_array_size:])
             print("max score: ", self.descriptors_array_score.max())
         return self.descriptors_array, self.descriptors_array_score
+
+    def draw_cross_on_xy_follow(self, img, radius, outer_radius, cross_size, thickness, color_black=(0, 0, 0), color_white=(255, 255, 255)):
+        # draw a cross at the middle of the screen but without its center. make it out of 4 lines
+        y = int(self.xy_follow[0])
+        x = int(self.xy_follow[1])
+        cv2.line(img, (y - cross_size, x), (y - radius - outer_radius, x),
+                color_black, thickness + 2)
+        cv2.line(img, (y + cross_size, x), (y + radius + outer_radius, x),
+                color_black, thickness + 2)
+        cv2.line(img, (y, x - cross_size), (y, x - radius - outer_radius),
+                color_black, thickness + 2)
+        cv2.line(img, (y, x + cross_size), (y, x + radius + outer_radius),
+                color_black, thickness + 2)
+        cv2.line(img, (y - cross_size, x), (y - radius - outer_radius, x),
+                color_white, thickness)
+        cv2.line(img, (y + cross_size, x), (y + radius + outer_radius, x),
+                color_white, thickness)
+        cv2.line(img, (y, x - cross_size), (y, x - radius - outer_radius),
+                color_white, thickness)
+        cv2.line(img, (y, x + cross_size), (y, x + radius + outer_radius),
+                color_white, thickness)
+        cv2.circle(img, (y, x), radius, color_black, thickness + 1)
+        cv2.circle(img, (y, x), radius - 1, color_white, thickness)
 
     def update_descriptors_memory(self, matched_descriptors):
         if self.descriptors_array is None:

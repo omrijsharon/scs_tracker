@@ -116,21 +116,110 @@ def create_intrinsic_matrix(width, height, hfov, vfov):
     return K
 
 
-def match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_neighbors=0):
-    if n_neighbors == 0:
-        matches = matcher.match(prev_des, des)
-        # matches = [m for m in matches if max_disparity > abs(prev_kp[m.queryIdx].pt[0] - kp[m.trainIdx].pt[0]) > min_disparity]
-        matches = [m for m in matches if min_disparity <= m.distance < max_disparity]
-    else:
-        matches = matcher.knnMatch(prev_des, des, k=n_neighbors)
-        best_matches = []
-        for m in matches:
-            valid_matches = [match for match in m if min_disparity <= match.distance < max_disparity]
-            if valid_matches:
-                best_matches.append(min(valid_matches, key=lambda match: match.distance))
-        matches = best_matches
-    return matches
+# def match_points(matcher, prev_des, des, min_disparity=8, max_disparity=47, n_neighbors=0):
+#     if n_neighbors == 0:
+#         matches = matcher.match(prev_des, des)
+#         # matches = [m for m in matches if max_disparity > abs(prev_kp[m.queryIdx].pt[0] - kp[m.trainIdx].pt[0]) > min_disparity]
+#         matches = [m for m in matches if min_disparity <= m.distance < max_disparity]
+#     else:
+#         matches = matcher.knnMatch(prev_des, des, k=n_neighbors)
+#         best_matches = []
+#         for m in matches:
+#             valid_matches = [match for match in m if min_disparity <= match.distance < max_disparity]
+#             if valid_matches:
+#                 best_matches.append(min(valid_matches, key=lambda match: match.distance))
+#         matches = best_matches
+#     return matches
 
+def match_ratio_test(matcher, prev_des, des, ratio_threshold=0.75):
+    matches = matcher.knnMatch(prev_des, des, k=2)
+    if len(matches) == 0:
+        return []
+    return [m for match_set in matches if len(match_set) >= 2 for m, n in [match_set[:2]] if m.distance < ratio_threshold * n.distance]
+
+
+def filter_unique_matches(matches):
+    matches = sorted(matches, key=lambda x: x.trainIdx)
+    return [matches[i] for i in range(len(matches)) if i == 0 or matches[i].trainIdx != matches[i - 1].trainIdx]
+
+
+def kp_mean_and_std(keypoints):
+    return np.mean(np.array([kp.pt for kp in keypoints]), axis=0), np.std(np.array([kp.pt for kp in keypoints]), axis=0)
+
+
+def filter_kp_and_des_by_matches(kp, des, matches, is_return_if_no_matches=False):
+    """
+    takes only the keypoints and descriptors that were matched
+    """
+    if len(kp) == 0:
+        return [], np.array([])
+    if len(matches) == 0:
+        if is_return_if_no_matches:
+            return kp, des
+        return [], np.array([])
+    kp = [kp[m.trainIdx] for m in matches]
+    des = np.take(des, [m.trainIdx for m in matches], axis=0)
+    return kp, des
+
+def initialize_orb_trackbars(window_name, callback_func=None):
+    cv.namedWindow(window_name, cv.WINDOW_NORMAL)
+    def f(x=None):
+        return
+    if callback_func is not None:
+        cv.setMouseCallback(window_name, callback_func)
+    cv.createTrackbar('Max Features', window_name, 3000, 5000, f)
+    cv.createTrackbar('Scale Factor (x10)', window_name, 15, 40, f)
+    cv.createTrackbar('Levels', window_name, 8, 20, f)
+    cv.createTrackbar('WTA_K (2 or 4)', window_name, 2, 4, f)
+    cv.createTrackbar('edgeThreshold', window_name, 1, 50, f)
+    cv.createTrackbar('patchSize', window_name, 31, 100, f)
+    cv.createTrackbar('fastThreshold', window_name, 42, 100, f)
+    cv.createTrackbar('Max Matches', window_name, 0, 100, f)
+    cv.createTrackbar('p', window_name, 50, 100, f)
+    cv.createTrackbar('draw keypoints?', window_name, 1, 1, f)
+
+
+def get_orb_params_from_trackbars(window_name):
+    nfeatures = cv.getTrackbarPos('Max Features', window_name)
+    nfeatures = 10 if nfeatures == 0 else nfeatures
+    scaleFactor = cv.getTrackbarPos('Scale Factor (x10)', window_name) / 10.0
+    nlevels = cv.getTrackbarPos('Levels', window_name)
+    WTA_K = cv.getTrackbarPos('WTA_K (2 or 4)', window_name)
+    WTA_K = 2 if WTA_K == 2 else 4
+    edgeThreshold = cv.getTrackbarPos('edgeThreshold', window_name)
+    edgeThreshold = 1 if edgeThreshold == 0 else edgeThreshold
+    patchSize = cv.getTrackbarPos('patchSize', window_name)
+    patchSize = 2 if patchSize <= 2 else patchSize
+    fastThreshold = cv.getTrackbarPos('fastThreshold', window_name)
+    fastThreshold = 1 if fastThreshold == 0 else fastThreshold
+    return {
+        'maxFeatures': nfeatures,
+        'scaleFactor': scaleFactor,
+        'nLevels': nlevels,
+        'WTA_K': WTA_K,
+        'edgeThreshold': edgeThreshold,
+        'patchSize': patchSize,
+        'fastThreshold': fastThreshold
+    }
+
+
+def change_orb_parameters(orb, **orb_params):
+    if 'maxFeatures' in orb_params:
+        orb.setMaxFeatures(orb_params['maxFeatures'])
+    if 'scaleFactor' in orb_params:
+        orb.setScaleFactor(orb_params['scaleFactor'])
+    if 'nLevels' in orb_params:
+        orb.setNLevels(orb_params['nLevels'])
+    if 'edgeThreshold' in orb_params:
+        orb.setEdgeThreshold(orb_params['edgeThreshold'])
+    if 'firstLevel' in orb_params:
+        orb.setFirstLevel(orb_params['firstLevel'])
+    if 'WTA_K' in orb_params:
+        orb.setWTA_K(orb_params['WTA_K'])
+    if 'patchSize' in orb_params:
+        orb.setPatchSize(orb_params['patchSize'])
+    if 'fastThreshold' in orb_params:
+        orb.setFastThreshold(orb_params['fastThreshold'])
 
 def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):
     color_gray = (200, 200, 200)
