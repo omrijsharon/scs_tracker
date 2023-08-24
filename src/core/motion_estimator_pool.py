@@ -4,9 +4,11 @@ from multiprocessing import Pool
 from concurrent.futures import ThreadPoolExecutor
 
 from time import perf_counter
-from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, match_points, draw_osd
+from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, draw_osd, \
+    initialize_orb_trackbars, get_orb_params_from_trackbars, filter_kp_and_des_by_trainIdx, is_var_valid
 import utils.screen_capture as sc
 from utils.pool_helper import slice_image_to_grid_cells, process_cell, calculate_essential_recover_pose
+
 
 if __name__ == '__main__':
     image_inv_scale = 2 # 2 for 1/2 size, 1 for original size
@@ -52,26 +54,19 @@ if __name__ == '__main__':
     grid_prev_des = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
     grid_matches_prev_idx = [[None for _ in range(grid_size[0])] for _ in range(grid_size[1])]
     depth_image = np.zeros(img.shape[:2])
-    cv.namedWindow('ORB Detection Test', cv.WINDOW_NORMAL)
+    window_name = 'ORB Detection Test'
+    initialize_orb_trackbars(window_name, callback_func=None)
 
     def f(x=None):
         return
 
-    cv.createTrackbar('Max Features', 'ORB Detection Test', 5000, 10000, f)
-    cv.createTrackbar('Scale Factor (x10)', 'ORB Detection Test', 20, 40, f)
-    cv.createTrackbar('Levels', 'ORB Detection Test', 8, 20, f)
-    cv.createTrackbar('WTA_K (2 or 4)', 'ORB Detection Test', 2, 4, f)
-    cv.createTrackbar('edgeThreshold', 'ORB Detection Test', 1, 50, f)
-    cv.createTrackbar('patchSize', 'ORB Detection Test', 31, 100, f)
-    cv.createTrackbar('fastThreshold', 'ORB Detection Test', 20, 100, f)
-    cv.createTrackbar('RANSAC subsample_size', 'ORB Detection Test', 1000, 5000, f)
-    cv.createTrackbar('maxIters', 'ORB Detection Test', 10, 500, f)
-    cv.createTrackbar('Min Disparity', 'ORB Detection Test', 7, max_disparity, f)
-    cv.createTrackbar('Max Matches per Cell', 'ORB Detection Test', 0, 100, f)
-    cv.createTrackbar('Min Matches', 'ORB Detection Test', min_n_matches, 500, f)
-    cv.createTrackbar('p', 'ORB Detection Test', int(p * 100), 100, f)
-    cv.createTrackbar('draw keypoints?', 'ORB Detection Test', 1, 1, f)
-
+    cv.createTrackbar('RANSAC subsample_size', window_name, 1000, 5000, f)
+    cv.createTrackbar('maxIters', window_name, 10, 500, f)
+    cv.createTrackbar('Min Disparity', window_name, 7, max_disparity, f)
+    cv.createTrackbar('Max Matches per Cell', window_name, 0, 100, f)
+    cv.createTrackbar('Min Matches', window_name, min_n_matches, 500, f)
+    cv.createTrackbar('p', window_name, int(p * 100), 100, f)
+    cv.createTrackbar('draw keypoints?', window_name, 1, 1, f)
 
     if matcher_type == 'bf':
         # Create BFMatcher object
@@ -97,19 +92,11 @@ if __name__ == '__main__':
         # img = cv.resize(img, (0, 0), fx=0.5, fy=0.5)
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
         gray = cv.resize(gray, (0, 0), fx=1/image_inv_scale, fy=1/image_inv_scale)
-
-        nfeatures = cv.getTrackbarPos('Max Features', 'ORB Detection Test')
-        nfeatures = 10 if nfeatures == 0 else nfeatures
-        scaleFactor = cv.getTrackbarPos('Scale Factor (x10)', 'ORB Detection Test') / 10.0
-        nlevels = cv.getTrackbarPos('Levels', 'ORB Detection Test')
-        WTA_K = cv.getTrackbarPos('WTA_K (2 or 4)', 'ORB Detection Test')
-        WTA_K = 2 if WTA_K == 2 else 4
-        edgeThreshold = cv.getTrackbarPos('edgeThreshold', 'ORB Detection Test')
-        edgeThreshold = 31 if edgeThreshold == 0 else edgeThreshold
-        patchSize = cv.getTrackbarPos('patchSize', 'ORB Detection Test')
-        patchSize = 2 if patchSize <= 2 else patchSize
-        fastThreshold = cv.getTrackbarPos('fastThreshold', 'ORB Detection Test')
-        fastThreshold = 1 if fastThreshold == 0 else fastThreshold
+        # create a dict of the parameters for the ORB detector
+        orb_parameters = get_orb_params_from_trackbars(window_name)
+        orb_parameters['maxFeatures'] = orb_parameters['maxFeatures'] // total_cells
+        # delete patchSize from orb_parameters
+        del orb_parameters['patchSize']
         subsample_size = cv.getTrackbarPos('RANSAC subsample_size', 'ORB Detection Test')
         subsample_size = 10 if subsample_size <= 10 else subsample_size
         maxIters = cv.getTrackbarPos('maxIters', 'ORB Detection Test')
@@ -122,15 +109,12 @@ if __name__ == '__main__':
         min_n_matches_per_cell = min_n_matches # // (np.prod(np.array(grid_size) - 2))
         p = cv.getTrackbarPos('p', 'ORB Detection Test') / 100.0
         p = 0.01 if p == 0 else p
-        is_draw_keypoints = bool(cv.getTrackbarPos('draw keypoints?', 'ORB Detection Test'))
+        is_draw_keypoints = bool(cv.getTrackbarPos('draw keypoints?', window_name))
 
         pts1 = []
         pts2 = []
-        t0 = perf_counter()
-        # create a dict of the parameters for the ORB detector
-        orb_parameters = {'nfeatures': nfeatures // total_cells, 'scaleFactor': scaleFactor, 'nlevels': nlevels, 'WTA_K': WTA_K, 'edgeThreshold': edgeThreshold, 'fastThreshold': fastThreshold}
-        t1 = perf_counter() - t0
         # sliced_gray = slice_image_to_grid_cells(gray, cell_width, cell_height, grid_size)
+        t0 = perf_counter()
 
         # prepare arg list for process_cell pool map
         # args_list = [(orb_parameters, gray[j * cell_height:(j + 1) * cell_height, i * cell_width:(i + 1) * cell_width], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell, max_matches_per_cell) for i in range(n_cells_to_skip_start, grid_size[0]-n_cells_to_skip_end) for j in range(n_cells_to_skip_start, grid_size[1]-n_cells_to_skip_end)]
@@ -147,9 +131,7 @@ if __name__ == '__main__':
         for result in results:
             cell_idx, cell_kp, cell_des, cell_grid_matches_prev_idx, cell_pts1, cell_pts2 = result
             j, i = cell_idx
-            grid_prev_kp[j][i] = cell_kp
-            grid_prev_des[j][i] = cell_des
-            grid_matches_prev_idx[j][i] = cell_grid_matches_prev_idx
+            grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i] = cell_kp, cell_des, cell_grid_matches_prev_idx
             pts1.extend(cell_pts1)
             pts2.extend(cell_pts2)
 
@@ -158,8 +140,7 @@ if __name__ == '__main__':
         #         cell_idx, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], pts1_array, pts2_array = process_cell(orb_parameters, sliced_gray[j][i], (j, i), cell_width, cell_height, grid_prev_kp[j][i], grid_prev_des[j][i], grid_matches_prev_idx[j][i], min_n_matches_per_cell)
         #         pts1.extend(pts1_array)
         #         pts2.extend(pts2_array)
-
-        t2 = perf_counter() - t0 - t1
+        t1 = perf_counter() - t0
 
         if len(pts1) > 0:
             pts1 = np.vstack(pts1)
@@ -177,14 +158,18 @@ if __name__ == '__main__':
                 subsample_idx = np.random.choice(len(pts1), subsample_size, replace=False)
                 pts1 = pts1[subsample_idx]
                 pts2 = pts2[subsample_idx]
+                # make arg list use pts1 and pts2 with indices from 0 to subsample_size//essential_n_processes, subsample_size//essential_n_processes to 2*subsample_size//essential_n_processes, etc.
+                args_list = [(pts1[i * subsample_size // essential_n_processes:(i + 1) * subsample_size // essential_n_processes],
+                              pts2[i * subsample_size // essential_n_processes:(i + 1) * subsample_size // essential_n_processes],
+                              focal, pp, K, width, height, subsample_size, maxIters) for i in range(essential_n_processes)]
+                print("len(pts1) per process: ", len(pts1) // essential_n_processes)
             else:
                 # shuffle pts1 and pts2 in the same order
-                idx = np.random.permutation(len(pts1))
-                pts1 = pts1[idx]
-                pts2 = pts2[idx]
-            print("len(pts1) per process: ", len(pts1) // essential_n_processes)
-            # make arg list use pts1 and pts2 with indices from 0 to subsample_size//essential_n_processes, subsample_size//essential_n_processes to 2*subsample_size//essential_n_processes, etc.
-            args_list = [(pts1[i*subsample_size//essential_n_processes:(i+1)*subsample_size//essential_n_processes], pts2[i*subsample_size//essential_n_processes:(i+1)*subsample_size//essential_n_processes], focal, pp, K, width, height, subsample_size, maxIters) for i in range(essential_n_processes)]
+                # idx = np.random.permutation(len(pts1))
+                # pts1 = pts1[idx]
+                # pts2 = pts2[idx]
+                args_list = [(pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters)]
+                print("len(pts1) per process: ", len(pts1))
             async_results = [pool.apply_async(calculate_essential_recover_pose, (args,)) for args in args_list]
             results = [async_result.get() for async_result in async_results]
 
@@ -212,9 +197,11 @@ if __name__ == '__main__':
                 #     depth_image = cv.GaussianBlur(depth_image, (3, 3), 0)
                 # # imshow depth
                 # cv.imshow('depth', depth_image)
-            p = n_results / essential_n_processes
-            print("n_results: ", n_results, "  p = ", p * 100, "%")
-            p *= 0.5
+            t2 = perf_counter() - t0 - t1
+            if len(results) > 1:
+                p = n_results / essential_n_processes
+                print("n_results: ", n_results, "  p = ", p * 100, "%")
+                p *= 0.5
             if n_results > 0:
                 pixel_coords /= n_results
 

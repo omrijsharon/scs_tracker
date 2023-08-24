@@ -1,6 +1,8 @@
 import numpy as np
 import cv2 as cv
 
+from utils.helper_functions import change_orb_parameters, match_ratio_test
+
 
 # slice the image into cells
 def slice_image_to_grid_cells(img, cell_width, cell_height, grid_size):
@@ -16,7 +18,9 @@ def slice_image_to_grid_cells(img, cell_width, cell_height, grid_size):
 
 def process_cell(args):
     orb_parameters, cell_gray, cell_idx, cell_width, cell_height, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, min_n_matches_per_cell, max_matches_per_cell = args
-    orb = cv.ORB_create(**orb_parameters, scoreType=cv.ORB_HARRIS_SCORE)
+    is_fail_flag = False
+    orb = cv.ORB_create(scoreType=cv.ORB_HARRIS_SCORE)
+    change_orb_parameters(orb, **orb_parameters)
     matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
     j, i = cell_idx # cell_idx is a tuple of (row, col)
     pts1_array = np.array([])
@@ -27,7 +31,7 @@ def process_cell(args):
     if not is_any_kp and not is_kp_more_than_min_n_matches: # there are keypoints but not enough
         for attempt in range(5):
             orb_parameters["fastThreshold"] //= 2
-            orb = cv.ORB_create(**orb_parameters, scoreType=cv.ORB_HARRIS_SCORE)
+            orb.setFastThreshold(orb_parameters["fastThreshold"]+1)
             cell_kp, cell_des = orb.detectAndCompute(cell_gray, None)
             is_any_kp = len(cell_kp) > 0
             is_kp_more_than_min_n_matches = len(cell_kp) >= min_n_matches_per_cell
@@ -51,30 +55,31 @@ def process_cell(args):
                     else:
                         cell_matches_prev_idx = np.array(cell_matches_prev_idx)[valid_matches]
                         prev_des = np.take(cell_prev_des, cell_matches_prev_idx, axis=0)
-                # matches = matcher.match(prev_des, cell_des)
-                matches = matcher.knnMatch(prev_des, cell_des, k=2)
+                matches = match_ratio_test(matcher, prev_des, cell_des)
                 # handle if there are no matches or only one match in knn
                 if len(matches) == 0:
-                    cell_prev_kp = None
-                    cell_prev_des = None
-                    cell_matches_prev_idx = None
-                try:
-                    matches = [m for match_set in matches for m, n in (match_set[:2],) if
-                               len(match_set) > 1 and m.distance < 0.75 * n.distance]
-                except:
-                    ValueError("matches is empty")
-                # matches = sorted(matches, key=lambda x: x.distance)
-                # print the mean and std of the matches distance
-                # print("mean: ", np.mean([m.distance for m in matches]), "std: ", np.std([m.distance for m in matches]))
-                matches = sorted(matches, key=lambda x: x.distance, reverse=True)[:max_matches_per_cell]
-                pts1_array = np.float32([cell_prev_kp[m.queryIdx].pt for m in matches]).reshape(-1, 2)
-                pts2_array = np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2)
-                cell_matches_prev_idx = [m.trainIdx for m in matches]
-                if len(cell_matches_prev_idx) == 0:
-                    cell_matches_prev_idx = None
-        # assign cell_kp to grid_prev_kp
-        cell_prev_kp = convert_keypoints_to_tuple(cell_kp)
-        cell_prev_des = cell_des
+                    is_fail_flag = True
+                else:
+                    # matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
+                    cell_matches_prev_idx = [m.trainIdx for m in matches]
+                    if len(cell_matches_prev_idx) == 0:
+                        is_fail_flag = True
+                    else:
+                        pts1_array = np.float32([cell_prev_kp[m.queryIdx].pt for m in matches]).reshape(-1, 2)
+                        pts2_array = np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2)
+                        # pass only the kp and des that were matched:
+                        # cell_kp = [cell_kp[m.trainIdx] for m in matches]
+                        # cell_des = np.take(cell_des, cell_matches_prev_idx, axis=0)
+
+
+        if is_fail_flag:
+            cell_prev_kp = None
+            cell_prev_des = None
+            cell_matches_prev_idx = None
+        else:
+            # assign cell_kp to grid_prev_kp
+            cell_prev_kp = convert_keypoints_to_tuple(cell_kp)
+            cell_prev_des = cell_des
     else:
         cell_prev_kp = None
         cell_prev_des = None

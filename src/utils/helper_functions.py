@@ -151,7 +151,7 @@ def filter_kp_and_des_by_matches(kp, des, matches, is_return_if_no_matches=False
     """
     takes only the keypoints and descriptors that were matched
     """
-    if len(kp) == 0:
+    if not is_var_valid(kp):
         return [], np.array([])
     if len(matches) == 0:
         if is_return_if_no_matches:
@@ -160,6 +160,32 @@ def filter_kp_and_des_by_matches(kp, des, matches, is_return_if_no_matches=False
     kp = [kp[m.trainIdx] for m in matches]
     des = np.take(des, [m.trainIdx for m in matches], axis=0)
     return kp, des
+
+
+def is_var_valid(var):
+    # checks if variable is not None and not empty
+    if var is None:
+        return False
+    # if var has attribute __len__ (is iterable) check if it is empty
+    if hasattr(var, '__len__'):
+        return len(var) > 0
+    raise TypeError("var must be iterable or None")
+
+
+def filter_kp_and_des_by_trainIdx(kp, des, trainIdx, is_return_if_no_matches=False):
+    """
+    takes only the keypoints and descriptors that were matched
+    """
+    if not is_var_valid(kp):
+        return [], np.array([])
+    if not is_var_valid(trainIdx):
+        if is_return_if_no_matches:
+            return kp, des
+        return [], np.array([])
+    kp = [kp[i] for i in trainIdx]
+    des = np.take(des, trainIdx, axis=0)
+    return kp, des
+
 
 def initialize_orb_trackbars(window_name, callback_func=None):
     cv.namedWindow(window_name, cv.WINDOW_NORMAL)
@@ -174,9 +200,7 @@ def initialize_orb_trackbars(window_name, callback_func=None):
     cv.createTrackbar('edgeThreshold', window_name, 1, 50, f)
     cv.createTrackbar('patchSize', window_name, 31, 100, f)
     cv.createTrackbar('fastThreshold', window_name, 42, 100, f)
-    cv.createTrackbar('Max Matches', window_name, 0, 100, f)
-    cv.createTrackbar('p', window_name, 50, 100, f)
-    cv.createTrackbar('draw keypoints?', window_name, 1, 1, f)
+
 
 
 def get_orb_params_from_trackbars(window_name):
@@ -220,6 +244,7 @@ def change_orb_parameters(orb, **orb_params):
         orb.setPatchSize(orb_params['patchSize'])
     if 'fastThreshold' in orb_params:
         orb.setFastThreshold(orb_params['fastThreshold'])
+
 
 def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):
     color_gray = (200, 200, 200)
