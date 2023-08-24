@@ -86,6 +86,63 @@ def process_cell(args):
         cell_matches_prev_idx = None
     return cell_idx, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, pts1_array, pts2_array
 
+
+def process_cell_v2(args):
+    cell_idx, cell_kp, cell_des, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, min_n_matches_per_cell, max_matches_per_cell = args
+    if cell_kp is not None:
+        cell_kp = convert_tuple_to_keypoints(cell_kp)
+    is_fail_flag = False
+    matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
+    pts1_array = np.array([])
+    pts2_array = np.array([])
+    is_any_kp = len(cell_kp) > 0
+    is_kp_more_than_min_n_matches = len(cell_kp) >= min_n_matches_per_cell
+    if is_any_kp:
+        if cell_prev_kp is not None:  # not first frame
+            cell_prev_kp = convert_tuple_to_keypoints(cell_prev_kp)
+            # if len(cell_prev_kp) > 1 and len(cell_prev_des) > 1 and is_kp_more_than_min_n_matches:
+            if len(cell_prev_kp) > 1 and len(cell_prev_des) > 1:
+                if cell_matches_prev_idx is None:  # first pair of frames
+                    prev_des = cell_prev_des
+                else:
+                    # check if all the indices in grid_matches_prev_idx[j][i] are valid
+                    valid_matches = ([0 <= idx < len(cell_prev_des) for idx in cell_matches_prev_idx])
+                    if len(cell_matches_prev_idx) <= min_n_matches_per_cell or any(valid_matches):
+                        prev_des = cell_prev_des
+                    else:
+                        cell_matches_prev_idx = np.array(cell_matches_prev_idx)[valid_matches]
+                        prev_des = np.take(cell_prev_des, cell_matches_prev_idx, axis=0)
+                matches = match_ratio_test(matcher, prev_des, cell_des, ratio_threshold=0.95)
+                # handle if there are no matches or only one match in knn
+                if len(matches) == 0:
+                    is_fail_flag = True
+                else:
+                    # matches = sorted(matches, key=lambda x: x.distance)[:max_matches_per_cell]
+                    cell_matches_prev_idx = [m.trainIdx for m in matches]
+                    if len(cell_matches_prev_idx) == 0:
+                        is_fail_flag = True
+                    else:
+                        pts1_array = np.float32([cell_prev_kp[m.queryIdx].pt for m in matches]).reshape(-1, 2)
+                        pts2_array = np.float32([cell_kp[m.trainIdx].pt for m in matches]).reshape(-1, 2)
+                        # pass only the kp and des that were matched:
+                        # cell_kp = [cell_kp[m.trainIdx] for m in matches]
+                        # cell_des = np.take(cell_des, cell_matches_prev_idx, axis=0)
+
+        if is_fail_flag:
+            cell_prev_kp = None
+            cell_prev_des = None
+            cell_matches_prev_idx = None
+        else:
+            # assign cell_kp to grid_prev_kp
+            cell_prev_kp = convert_keypoints_to_tuple(cell_kp)
+            cell_prev_des = cell_des
+    else:
+        cell_prev_kp = None
+        cell_prev_des = None
+        cell_matches_prev_idx = None
+    return cell_idx, cell_prev_kp, cell_prev_des, cell_matches_prev_idx, pts1_array, pts2_array
+
+
 def convert_keypoints_to_tuple(kp):
     return tuple({'angle': k.angle, 'class_id': k.class_id, 'octave': k.octave, 'x': k.pt[0], 'y': k.pt[1], 'response': k.response, 'size': k.size} for k in kp)
 
