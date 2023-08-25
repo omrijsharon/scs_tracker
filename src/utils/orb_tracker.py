@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import cv2
 import warnings
 from itertools import compress
@@ -15,7 +16,7 @@ class ORB_tracker:
         self.min_kp_matches = 10
         self.min_crop_size = 21
         self.max_crop_size = 311
-        self.max_des_array_size = 500
+        self.max_des_buffer_size = 1000
         self.xy_smooth_factor = 0.1
         self.discount_factor = 0.9
         self.min_score_threshold = 0.1
@@ -36,6 +37,9 @@ class ORB_tracker:
         self.xy_follow = None
         self.is_initialized = False
         self.is_successful = True
+        # init matplotlib figure and ax
+        self.fig = plt.figure()
+        self.ax = self.fig.add_subplot(111)
 
     def reset(self, frame, xy):
         self.last_keypoints = None
@@ -310,12 +314,12 @@ class ORB_tracker:
                     self.descriptors_buffer = np.concatenate((self.descriptors_buffer, des.reshape(1, -1)), axis=0)
                     self.descriptors_buffer_occurrence_score = np.concatenate((self.descriptors_buffer_occurrence_score, np.array([1])), axis=0)
 
-            if len(self.descriptors_buffer) > self.max_des_array_size:
+            if len(self.descriptors_buffer) > self.max_des_buffer_size:
                 # sort descriptors_array_score and descriptors_array by descriptors_array_score
                 self.descriptors_buffer_occurrence_score, self.descriptors_buffer = zip(*sorted(zip(self.descriptors_buffer_occurrence_score, self.descriptors_buffer), key=lambda pair: pair[0]))
                 # remove the first len(self.descriptors_array) - self.max_des_array_size descriptors
-                self.descriptors_buffer = np.array(self.descriptors_buffer[-self.max_des_array_size:])
-                self.descriptors_buffer_occurrence_score = np.array(self.descriptors_buffer_occurrence_score[-self.max_des_array_size:])
+                self.descriptors_buffer = np.array(self.descriptors_buffer[-self.max_des_buffer_size:])
+                self.descriptors_buffer_occurrence_score = np.array(self.descriptors_buffer_occurrence_score[-self.max_des_buffer_size:])
             print("max score: ", self.descriptors_buffer_occurrence_score.max())
         return self.descriptors_buffer, self.descriptors_buffer_occurrence_score
 
@@ -345,13 +349,13 @@ class ORB_tracker:
             # keep only the descriptors with the highest score
             print("np.max(self.descriptors_array_score): ", np.max(self.descriptors_buffer_occurrence_score))
             # # Check if buffer size exceeds the maximum allowed
-            if len(self.descriptors_buffer) > self.max_des_array_size:
+            if len(self.descriptors_buffer) > self.max_des_buffer_size:
                 # Get indices of descriptors sorted by score
                 sorted_indices = np.argsort(self.descriptors_buffer_occurrence_score)
 
                 # Keep only the top descriptors based on max_des_array_size
-                self.descriptors_buffer = self.descriptors_buffer[sorted_indices[-self.max_des_array_size:]]
-                self.descriptors_buffer_occurrence_score = self.descriptors_buffer_occurrence_score[sorted_indices[-self.max_des_array_size:]]
+                self.descriptors_buffer = self.descriptors_buffer[sorted_indices[-self.max_des_buffer_size:]]
+                self.descriptors_buffer_occurrence_score = self.descriptors_buffer_occurrence_score[sorted_indices[-self.max_des_buffer_size:]]
 
     def match_descriptors_to_descriptors_buffer(self, matcher, matched_descriptors):
         """
@@ -379,15 +383,23 @@ class ORB_tracker:
                 # change the descriptor in descriptors_buffer to a new descriptor which is the weighted median of the matched descriptor and the descriptor in descriptors_buffer (using the descriptors_buffer_score-1 as the weight). remember that the descriptor is 32 x 8bit integers.
                 # self.descriptors_buffer[m.trainIdx] = np.median(np.array([matched_descriptors[m.queryIdx], self.descriptors_buffer[m.trainIdx]*(self.descriptors_buffer_occurrence_score[m.trainIdx] - 1)]), axis=0).astype(np.uint8)
                 self.descriptors_buffer[m.trainIdx] = matched_descriptors[m.queryIdx]
+            if len(self.descriptors_buffer) < self.max_des_buffer_size:
             # add all the descriptors that didn't match to any of the descriptors_buffer to the descriptors_buffer
-            # self.descriptors_buffer = np.concatenate((self.descriptors_buffer, matched_descriptors[[m.queryIdx for m in matches]]), axis=0)
-            # self.descriptors_buffer_occurrence_score = np.concatenate((self.descriptors_buffer_occurrence_score, np.ones(len(matches))), axis=0)
-            # self.descriptors_buffer_recency_score = np.concatenate((self.descriptors_buffer_recency_score, np.ones(len(matches))), axis=0)
+                self.descriptors_buffer = np.concatenate((self.descriptors_buffer, matched_descriptors[[m.queryIdx for m in matches]]), axis=0)
+                self.descriptors_buffer_occurrence_score = np.concatenate((self.descriptors_buffer_occurrence_score, np.ones(len(matches))), axis=0)
+                self.descriptors_buffer_recency_score = np.concatenate((self.descriptors_buffer_recency_score, np.ones(len(matches))), axis=0)
         else:
             # add the descriptor to the descriptors_buffer
             self.descriptors_buffer = np.concatenate((self.descriptors_buffer, matched_descriptors), axis=0)
             self.descriptors_buffer_occurrence_score = np.concatenate((self.descriptors_buffer_occurrence_score, np.ones(len(matched_descriptors))), axis=0)
             self.descriptors_buffer_recency_score = np.concatenate((self.descriptors_buffer_recency_score, np.ones(len(matched_descriptors))), axis=0)
+
+        if self.descriptors_buffer_occurrence_score.max() > 40:
+            # delete all descriptors that have a descriptors_buffer_score lower than 3
+            score_indices = self.descriptors_buffer_occurrence_score > 2
+            self.descriptors_buffer = self.descriptors_buffer[score_indices]
+            self.descriptors_buffer_occurrence_score = self.descriptors_buffer_occurrence_score[score_indices]
+            self.descriptors_buffer_recency_score = self.descriptors_buffer_recency_score[score_indices]
 
         # score = self.descriptors_buffer_occurrence_score * self.descriptors_buffer_recency_score
         # score = self.descriptors_buffer_recency_score
@@ -401,7 +413,7 @@ class ORB_tracker:
         # print("best score: ", score.max(), "  worst score: ", score.min())
 
         # if buffer size is too large, remove the descriptors with the lowest score, which is the descriptors_buffer_occurrence_score * descriptors_buffer_recency_score
-        if len(self.descriptors_buffer) > self.max_des_array_size:
+        if len(self.descriptors_buffer) > self.max_des_buffer_size:
             # sort descriptors_buffer_occurrence_score and descriptors_buffer by descriptors_buffer_occurrence_score * descriptors_buffer_recency_score
             # arg sort self.descriptors_buffer_occurrence_score * self.descriptors_buffer_recency_score and sort self.descriptors_buffer_occurrence_score * self.descriptors_buffer_recency_score and self.descriptors_buffer by the sorted indices
             # argsort score
@@ -410,10 +422,16 @@ class ORB_tracker:
             self.descriptors_buffer_recency_score = self.descriptors_buffer_recency_score[sorted_score_indices]
             self.descriptors_buffer = self.descriptors_buffer[sorted_score_indices]
             # remove the first len(self.descriptors_buffer) - self.max_des_array_size descriptors
-            self.descriptors_buffer = np.array(self.descriptors_buffer[-self.max_des_array_size:])
-            self.descriptors_buffer_occurrence_score = np.array(self.descriptors_buffer_occurrence_score[-self.max_des_array_size:])
-            self.descriptors_buffer_recency_score = np.array(self.descriptors_buffer_recency_score[-self.max_des_array_size:])
-        print("self.descriptors_buffer_occurrence_score.max(): ", self.descriptors_buffer_occurrence_score.max(), "  buffer size:", len(self.descriptors_buffer), "--->", int(len(self.descriptors_buffer) / self.max_des_array_size * 100), "%",)
+            self.descriptors_buffer = np.array(self.descriptors_buffer[-self.max_des_buffer_size:])
+            self.descriptors_buffer_occurrence_score = np.array(self.descriptors_buffer_occurrence_score[-self.max_des_buffer_size:])
+            self.descriptors_buffer_recency_score = np.array(self.descriptors_buffer_recency_score[-self.max_des_buffer_size:])
+        # plot self.descriptors_buffer_occurrence_score histogram using self.fig and self.ax
+        if np.random.randint(0, 20)==0:
+            # self.plot_descriptors_buffer_occurrence_score_histogram()
+            self.ax.clear()
+            self.ax.hist(self.descriptors_buffer_occurrence_score.astype(int), bins=self.descriptors_buffer_occurrence_score.max().astype(int))
+            plt.pause(0.00001)
+        print("self.descriptors_buffer_occurrence_score.max(): ", self.descriptors_buffer_occurrence_score.max(), "  buffer size:", len(self.descriptors_buffer), "--->", int(len(self.descriptors_buffer) / self.max_des_buffer_size * 100), "%", )
 
     @staticmethod
     def add_to_bin(descriptor, bins, threshold):
