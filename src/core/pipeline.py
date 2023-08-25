@@ -38,6 +38,7 @@ class ORB_Pipeline(Pipeline):
         cv.createTrackbar('Max Matches', window_name, 0, 100, self.f)
         cv.createTrackbar('gaussian blur size', window_name, 81, 101, self.f)
         cv.createTrackbar('countor threshold', window_name, 100, 255, self.f)
+        cv.createTrackbar('p', window_name, 50, 100, self.f)
         cv.createTrackbar('draw keypoints?', window_name, 1, 1, self.f)
 
     def f(self, x=None):
@@ -69,6 +70,7 @@ class ORB_Pipeline(Pipeline):
             kp_density_frame = cv.normalize(kp_density_frame, None, 0, 255, cv.NORM_MINMAX, cv.CV_8UC1)
             countor_threshold = cv.getTrackbarPos('countor threshold', self.window_name)
             countor_threshold = countor_threshold if countor_threshold > 0 else 1
+            p = cv.getTrackbarPos('p', self.window_name) / 100.0
             kp_density_frame[kp_density_frame < countor_threshold] = 0
             # kp_density_frame = cv.applyColorMap(kp_density_frame, cv.COLORMAP_JET)
             # contours, hierarchy = cv.findContours(kp_density_frame, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
@@ -79,7 +81,7 @@ class ORB_Pipeline(Pipeline):
             # kp_density_frame = np.zeros(gray.shape[:2], dtype=np.uint8)
             # if len(countours_areas) > 0:
             #     kp_density_frame = cv.drawContours(kp_density_frame, contours[-10:], -1, 255, -1)
-            return (0.5 * gray + 0.5 * kp_density_frame).astype(np.uint8)
+            return (p * gray + (1-p) * kp_density_frame).astype(np.uint8)
         return frame
 
 
