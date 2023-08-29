@@ -142,7 +142,7 @@ class AdaptiveDescriptorBuffer:
             # trainIdx = [m.trainIdx for m in matches]
             # print("len queryIdx:", len(queryIdx), "         len trainIdx:", len(trainIdx))
             matches = filter_top_matches(matches, n_top_matches=self.min_n_matches)
-            matches = filter_matches_by_distance(matches, max_distance=75) #@TODO: Test and change this to a better distance
+            matches = filter_matches_by_distance(matches, max_distance=75)
             len_matches = len(matches)
             if len_matches >= self.min_n_matches:
                 return matches
