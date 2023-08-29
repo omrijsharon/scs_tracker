@@ -235,10 +235,10 @@ if __name__ == '__main__':
                 # # imshow depth
                 # cv.imshow('depth', depth_image)
             t2 = perf_counter() - t0 - t1
-            if len(results) > 1:
-                p = n_results / essential_n_processes
-                print("n_results: ", n_results, "  p = ", p * 100, "%")
-                p *= 0.5
+            # if len(results) > 1:
+            #     p = n_results / essential_n_processes
+            #     print("n_results: ", n_results, "  p = ", p * 100, "%")
+            #     p *= 0.5
             if n_results > 0:
                 pixel_coords /= n_results
 

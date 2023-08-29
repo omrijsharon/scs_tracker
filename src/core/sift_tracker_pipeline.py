@@ -11,10 +11,8 @@ def run_orb_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
     def mouse_callback(event, x, y, flags, param):
         if event == cv.EVENT_LBUTTONDOWN:
             print(x, y)
-            change_orb_parameters(orb_tracker.orb, **get_orb_params_from_trackbars(window_name))
-            orb_tracker.reset(frame, (x, y))
-    # orb_tracker = ORB_tracker(init_crop_size=101)
-    orb_tracker = ORB_trackerV2(n_closest_kp=20)
+            sift_tracker.reset(frame, (x, y))
+    sift_tracker = SIFT_tracker(n_closest_kp=6)
     cap = sc.ScreenCapture(monitor_number=1, tlwh=tlwh)
 
     def f(x=None):
@@ -29,17 +27,16 @@ def run_orb_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
     while True:
         frame = cap.capture()
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        if orb_tracker.is_initialized:
-            change_orb_parameters(orb_tracker.orb, **get_orb_params_from_trackbars(window_name))
-            # orb_tracker.set_p(cv.getTrackbarPos('p', window_name) / 100.0)
-            # orb_tracker.set_max_matches(cv.getTrackbarPos('Max Matches', window_name))
-            orb_tracker.update(gray)
+        if sift_tracker.is_initialized:
+            # sift_tracker.set_p(cv.getTrackbarPos('p', window_name) / 100.0)
+            # sift_tracker.set_max_matches(cv.getTrackbarPos('Max Matches', window_name))
+            sift_tracker.update(gray)
             if cv.getTrackbarPos('draw keypoints?', window_name):
-                orb_tracker.draw_all_on_frame(frame)
-                # orb_tracker.draw_all_on_frame(gray)
+                sift_tracker.draw_all_on_frame(frame)
+                # sift_tracker.draw_all_on_frame(gray)
             else:
-                orb_tracker.draw_xy_on_frame(frame)
-                orb_tracker.draw_cross_on_xy_follow(frame, radius=10, thickness=2, cross_size=10, outer_radius=5)
+                sift_tracker.draw_xy_on_frame(frame)
+                sift_tracker.draw_cross_on_xy_follow(frame, radius=10, thickness=2, cross_size=10, outer_radius=5)
         # cv.imshow(window_name, gray)
         cv.imshow(window_name, frame)
         if cv.waitKey(10) & 0xFF == 27:

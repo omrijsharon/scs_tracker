@@ -23,6 +23,7 @@ youtube_tlwh_large = (80, 1921, 1901, 1135)
 uncrashed720p = (700, 1280, 1280, 720)
 
 mouse_coords = (-1, -1)
+# n_particles = 11
 n_particles = 11
 smallest_kernel = 15
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1

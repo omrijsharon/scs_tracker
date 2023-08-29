@@ -2,9 +2,11 @@ import cv2 as cv
 import utils.screen_capture as sc
 import numpy as np
 
+from utils.helper_functions import match_ratio_test
+
 # Initialize the screenshot taker
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
-detector = cv.SIFT_create(sigma=1.6, nOctaveLayers=3)
+detector = cv.SIFT_create(nfeatures=100, contrastThreshold=0.04, sigma=1.6, nOctaveLayers=3, edgeThreshold=10)
 # bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 bf = cv.BFMatcher(cv.NORM_L2, crossCheck=True)  # This is for SIFT
 # FLANN parameters
@@ -16,6 +18,8 @@ flann = cv.FlannBasedMatcher(index_params,search_params)
 # This flag and the ref_img will control when we start matching
 start_matching = False
 ref_img = None
+
+is_symetric = False
 
 
 # Mouse callback function
@@ -35,6 +39,7 @@ cv.namedWindow('Choose reference image')
 cv.namedWindow('Matches', cv.WINDOW_NORMAL)
 
 cv.createTrackbar('Max Features', 'Matches', 500, 5000, f)
+cv.createTrackbar('ratio threshold', 'Matches', 90, 100, f)
 
 # Set mouse callback function for window
 cv.setMouseCallback('Choose reference image', choose_ref)
@@ -45,6 +50,10 @@ while True:
 
     if start_matching:
         nfeatures = cv.getTrackbarPos('Max Features', 'Matches')
+        # read ratio threshold trackbar
+        ratio_threshold = cv.getTrackbarPos('ratio threshold', 'Matches') / 100.0
+        ratio_threshold = 0.01 if ratio_threshold == 0 else ratio_threshold
+        ratio_threshold = 0.99 if ratio_threshold == 1 else ratio_threshold
         # Convert images to grayscale
         gray1 = cv.cvtColor(ref_img, cv.COLOR_BGR2GRAY)
         gray2 = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -64,18 +73,21 @@ while True:
         # kp2, des2 = detector.detectAndCompute(gray2, None)
 
         # Match descriptors
-        # matches = bf.match(des1, des2)
-        matches12 = flann.knnMatch(des1,des2,k=2)
-        matches21 = flann.knnMatch(des2,des1,k=2)
-
-        # Perform symmetry test
-        symmetric_matches = []
-        for match_12 in matches12:
-            for match_21 in matches21:
-                if match_12.queryIdx == match_21.trainIdx and match_12.trainIdx == match_21.queryIdx:
-                    symmetric_matches.append(match_12)
-                    break
-        matches = symmetric_matches
+        if not is_symetric:
+            # matches = match_ratio_test(bf, des2, des1, ratio_threshold=ratio_threshold)
+            # matches = bf.match(des2, des1)
+            matches = flann.match(des2, des1)
+        else:
+            matches12 = flann.knnMatch(des1,des2,k=2)
+            matches21 = flann.knnMatch(des2,des1,k=2)
+            # Perform symmetry test
+            symmetric_matches = []
+            for match_12 in matches12:
+                for match_21 in matches21:
+                    if match_12.queryIdx == match_21.trainIdx and match_12.trainIdx == match_21.queryIdx:
+                        symmetric_matches.append(match_12)
+                        break
+            matches = symmetric_matches
         # Sort matches by distance (smaller is better)
         # matches = sorted(matches, key=lambda x: x.distance)
 
@@ -87,19 +99,20 @@ while True:
 
         if len(matches) >= 4:
             for i, match in enumerate(matches):
-                points1[i, :] = kp1[match.queryIdx].pt
-                points2[i, :] = kp2[match.trainIdx].pt
+                points1[i, :] = kp1[match.trainIdx].pt
+                points2[i, :] = kp2[match.queryIdx].pt
 
             # Compute homography using RANSAC, this function also provide a mask for outliers
-            H, mask = cv.findHomography(points1, points2, cv.RANSAC, confidence=0.99, maxIters=1000)
-
+            H, mask = cv.findHomography(points2, points1, cv.RANSAC, confidence=0.99, maxIters=100)
+            # aligned_img2 = cv.warpPerspective(img, H, (ref_img.shape[1], ref_img.shape[0]))
+            # img = cv.addWeighted(img, 0.5, aligned_img2, 0.5, 0)
             # Use this mask to remove outliers
             matchesMask = mask.ravel().tolist()
 
             # Draw matches and the consensus set
-            draw_params = dict(singlePointColor=None, matchesMask=matchesMask, flags=2)
+            draw_params = dict(singlePointColor=None, matchesMask=matchesMask, flags=0)
 
-            result = cv.drawMatches(ref_img, kp1, img, kp2, matches, None, **draw_params)
+            result = cv.drawMatches(img, kp2, ref_img, kp1, matches, None, **draw_params)
             # result = cv.drawMatches(ref_img, kp1, img, kp2, matches, None)
             # img = cv.drawKeypoints(img, kp1, None, color=(0, 255, 0))
             # Show the matches

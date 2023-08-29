@@ -112,7 +112,7 @@ def process_cell_v2(args):
                     else:
                         cell_matches_prev_idx = np.array(cell_matches_prev_idx)[valid_matches]
                         prev_des = np.take(cell_prev_des, cell_matches_prev_idx, axis=0)
-                matches = match_ratio_test(matcher, prev_des, cell_des, ratio_threshold=0.99)
+                matches = match_ratio_test(matcher, prev_des, cell_des, ratio_threshold=0.6)
                 # handle if there are no matches or only one match in knn
                 if len(matches) == 0:
                     is_fail_flag = True
@@ -152,7 +152,7 @@ def convert_tuple_to_keypoints(kp):
 
 def calculate_essential_recover_pose(args):
     pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters = args
-    error_threshold = 1e-2
+    error_threshold = 1e-1
     pixel_coords = (0, 0)
     kp_depth = None
     if len(pts1) >= 8:
@@ -169,13 +169,12 @@ def calculate_essential_recover_pose(args):
             pts1 = pts1[errors < error_threshold]
             pts2 = pts2[errors < error_threshold]
             errors = errors[errors < error_threshold]
-            print(errors)
             if len(pts1) > 8:
                 E, mask = cv.findEssentialMat(pts1, pts2, focal, pp, method=cv.FM_RANSAC, prob=0.999999, threshold=1,
                                               maxIters=maxIters)
                 pts1 = pts1[mask.ravel() == 1]
                 pts2 = pts2[mask.ravel() == 1]
-
+                print("len(pts2) per process:", len(pts2))
                 _, R, t, _ = cv.recoverPose(E, pts1, pts2)
 
                 velocity_dir = R.dot(t.reshape(3, 1))

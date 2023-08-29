@@ -2,6 +2,8 @@ import cv2 as cv
 import utils.screen_capture as sc
 import numpy as np
 
+from utils.helper_functions import match_ratio_test
+
 # Initialize the screenshot taker
 cap = sc.ScreenCapture(monitor_number=1, tlwh=sc.YOUTUBE_TLWH_SMALL)
 # bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
@@ -46,6 +48,7 @@ cv.createTrackbar('WTA_K (2 or 4)', 'Matches', 2, 4, f)
 cv.createTrackbar('edgeThreshold', 'Matches', 1, 50, f)
 cv.createTrackbar('patchSize', 'Matches', 31, 100, f)
 cv.createTrackbar('fastThreshold', 'Matches', 20, 100, f)
+cv.createTrackbar('ratio threshold', 'Matches', 99, 100, f)
 
 # Set mouse callback function for window
 cv.setMouseCallback('Choose reference image', choose_ref)
@@ -66,12 +69,14 @@ while True:
         patchSize = 2 if patchSize <= 2 else patchSize
         fastThreshold = cv.getTrackbarPos('fastThreshold', 'Matches')
         fastThreshold = 1 if fastThreshold == 0 else fastThreshold
-
+        ratio_threshold = cv.getTrackbarPos('ratio threshold', 'Matches') / 100.0
+        ratio_threshold = 0.99 if ratio_threshold == 1 else ratio_threshold
+        ratio_threshold = 0.01 if ratio_threshold == 0 else ratio_threshold
         # Convert images to grayscale
         gray1 = cv.cvtColor(ref_img, cv.COLOR_BGR2GRAY)
         gray2 = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
-        detector = cv.ORB_create(nfeatures=nfeatures, scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
+        detector = cv.ORB_create(nfeatures=nfeatures, fastThreshold=fastThreshold, patchSize=patchSize, scaleFactor=scaleFactor, nlevels=nlevels, WTA_K=WTA_K)
 
         # Detect keypoints and compute descriptors
         kp1, des1 = detector.detectAndCompute(gray1, None)
@@ -87,8 +92,10 @@ while True:
 
         if is_symetric:
             # Match descriptors
-            matches12 = bf.match(des1, des2)
-            matches21 = bf.match(des1, des2)
+            # matches12 = bf.match(des1, des2)
+            # matches21 = bf.match(des1, des2)
+            matches12 = match_ratio_test(bf, des1, des2, ratio_threshold=ratio_threshold)
+            matches21 = match_ratio_test(bf, des2, des1, ratio_threshold=ratio_threshold)
             # matches12 = flann.match(des1, des2)
             # matches21 = flann.match(des1, des2)
             # Perform symmetry test
@@ -100,12 +107,9 @@ while True:
                         break
             matches = symmetric_matches
         else:
-            matches = bf.knnMatch(des1, des2, k=2)
-            # Apply ratio test
-            good = []
-            for m, n in matches:
-                if m.distance < 1.2 * n.distance:
-                    good.append([m])
+            # matches = match_ratio_test(bf, des1, des2, ratio_threshold=ratio_threshold)
+            matches = match_ratio_test(bf, des2, des1, ratio_threshold=ratio_threshold)
+
         # Sort matches by distance (smaller is better)
         # matches = sorted(matches, key=lambda x: x.distance)
 
@@ -130,9 +134,11 @@ while True:
         #     # draw_params = dict(singlePointColor=None, matchesMask=matchesMask, flags=2)
 
         # result = cv.drawMatches(ref_img, kp1, img, kp2, matches, None, **draw_params)
-        # result = cv.drawMatches(ref_img, kp1, img, kp2, matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-        result = cv.drawMatchesKnn(ref_img, kp1, img, kp2, good, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-        # img = cv.drawKeypoints(img, kp1, None, color=(0, 255, 0))
+        print(len(kp1), len(kp2), len(matches))
+        if matches is not None:
+            result = cv.drawMatches(img, kp2, ref_img, kp1, matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+            # result = cv.drawMatchesKnn(ref_img, kp1, img, kp2, matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+            # result = cv.drawKeypoints(img, kp1, None, color=(0, 255, 0))
         # Show the matches
         cv.imshow('Matches', result)
         # cv.imshow('Matches', img)

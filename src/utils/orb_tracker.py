@@ -16,10 +16,11 @@ class ORB_tracker:
         self.min_kp_matches = 10
         self.min_crop_size = 21
         self.max_crop_size = 311
-        self.max_des_buffer_size = 1000
-        self.xy_smooth_factor = 0.1
+        self.max_des_buffer_size = 100
+        self.xy_smooth_factor = 0.5
         self.discount_factor = 0.9
         self.min_score_threshold = 0.1
+        self.ratio_threshold = 0.7
         self.last_keypoints = None
         self.last_descriptors = None
         self.descriptors_buffer = None
@@ -56,6 +57,8 @@ class ORB_tracker:
         self.xy = xy
         self.xy_follow = np.array(xy)
         cropped_frame = self.crop_frame(frame)
+        self.orb.setMaxFeatures(5000)
+        self.orb.setFastThreshold(12)
         # compute keypoints and descriptors
         keypoints, descriptors = self.orb.detectAndCompute(cropped_frame, None)
         if len(keypoints) > 0:
@@ -107,10 +110,10 @@ class ORB_tracker:
         if self.is_successful:
             self.correct_keypoints_coordinates(keypoints)
         if self.descriptors_buffer is None:
-            matches = match_ratio_test(self.matcher, self.last_descriptors, descriptors)
+            matches = match_ratio_test(self.matcher, self.last_descriptors, descriptors, ratio_threshold=self.ratio_threshold)
             # matches = self.matcher.match(self.last_descriptors, descriptors)
         else:
-            matches = match_ratio_test(self.matcher, self.descriptors_buffer, descriptors)
+            matches = match_ratio_test(self.matcher, self.descriptors_buffer, descriptors, ratio_threshold=self.ratio_threshold)
             # matches = self.matcher.match(self.descriptors_array, descriptors)
         if len(matches) == 0: # no matches
             warnings.warn('No matches found')
@@ -128,6 +131,7 @@ class ORB_tracker:
                     # self.update_descriptors_memory(descriptors[[m.trainIdx for m in matches]])
                     self.match_descriptors_to_descriptors_buffer(self.matcher, descriptors[[m.trainIdx for m in matches]])
 
+
                 # prev_pts = np.float32([self.last_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
                 mean, std = kp_mean_and_std(keypoints)
                 if len(matches) < self.min_kp_matches:
@@ -136,7 +140,7 @@ class ORB_tracker:
                 self.xy = mean.astype(int)
                 self.xy_follow = self.xy_smooth_factor * self.xy + (1 - self.xy_smooth_factor) * self.xy_follow
                 # self.next_crop_size = tuple(np.clip((self.crop_size_scale * std.reshape(-1)).astype(int), self.min_crop_size, self.max_crop_size))
-                self.next_crop_size = (201, 201)
+                self.next_crop_size = (101, 101)
                 self.is_successful = True
                 # return next_pts.astype(np.int32), len(matches)
             else:
@@ -222,7 +226,7 @@ class ORB_tracker:
         cv2.rectangle(frame, tuple(self.next_crop_top_left), tuple(self.next_crop_bottom_right), (0, 255, 0), 2)
 
     def draw_keypoints_on_frame(self, frame): # using cv2.drawKeypoints
-        cv2.drawKeypoints(frame, self.last_keypoints, frame, color=(0, 255, 0), flags=4)
+        cv2.drawKeypoints(frame, self.last_keypoints, frame, color=(0, 255, 0), flags=3)
 
     def draw_xy_on_frame(self, frame):
         cv2.circle(frame, tuple(self.xy), 2, (0, 255, 0), 2)
@@ -394,7 +398,7 @@ class ORB_tracker:
             self.descriptors_buffer_occurrence_score = np.concatenate((self.descriptors_buffer_occurrence_score, np.ones(len(matched_descriptors))), axis=0)
             self.descriptors_buffer_recency_score = np.concatenate((self.descriptors_buffer_recency_score, np.ones(len(matched_descriptors))), axis=0)
 
-        if self.descriptors_buffer_occurrence_score.max() > 40:
+        if self.descriptors_buffer_occurrence_score.max() > 35:
             # delete all descriptors that have a descriptors_buffer_score lower than 3
             score_indices = self.descriptors_buffer_occurrence_score > 2
             self.descriptors_buffer = self.descriptors_buffer[score_indices]

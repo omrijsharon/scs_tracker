@@ -1,7 +1,7 @@
 import numpy as np
 import cv2 as cv
 
-from utils.helper_functions import match_ratio_test
+from utils.helper_functions import match_ratio_test, kp_mean_and_std, filter_matches_by_distance, filter_top_matches
 
 
 class DescriptorBuffer:
@@ -85,4 +85,67 @@ class DescriptorBuffer:
             matches = [matches[i] for i in sorted_idx if self.occurrence_score[matches[i].trainIdx] > occurrence_score_threshold]
             if len(matches) > 0:
                 return np.array([m.trainIdx for m in matches])
+        return None
+
+
+class AdaptiveDescriptorBuffer:
+    # this class gets the first descriptors. then, when getting new descriptors, it matches them to the first descriptors.
+    # then, it changes the first descriptors to the new descriptors if the matches are good enough.
+    # by this, it maintains the original descriptors, but adapts them to the current scene.
+    def __init__(self, matcher, n_descriptors, min_n_matches, ratio_threshold=0.7, descriptor_size=32):
+        self.n_descriptors = n_descriptors
+        self.descriptor_size = descriptor_size
+        self.min_n_matches = min_n_matches
+        self.buffer = np.zeros((n_descriptors, descriptor_size), dtype=np.uint8)
+        self.matcher = matcher
+        self.ratio_threshold = ratio_threshold
+        self.matches = None
+        self.mean = None
+        self.std = None
+        self.kp = None
+
+    def clear(self):
+        self.buffer = np.zeros((self.n_descriptors, self.descriptor_size), dtype=np.uint8)
+
+    def reset(self, xy, keypoints, descriptors):
+        # sort the keypoints and descriptors by their euclidean distance from xy.
+        # then take the first n_descriptors that are closest to xy
+        # this way, we get the descriptors that are closest to xy
+        kp_coords = np.array([k.pt for k in keypoints])
+        kp_distances = np.linalg.norm(kp_coords - xy, axis=1)
+        sorted_idx = np.argsort(kp_distances)
+        self.buffer = descriptors[sorted_idx[:self.n_descriptors]]
+        self.mean, self.std = kp_mean_and_std(np.array(keypoints)[sorted_idx[:self.n_descriptors]])
+        # return the distances of the n_descriptors closest keypoints to xy
+        return kp_distances[sorted_idx[:self.n_descriptors]]
+
+    def update(self, keypoints, descriptors):
+        # ratio test
+        self.matches = self.try_to_match(descriptors) # for orb
+        # self.matches = self.matcher.match(descriptors, self.buffer) # for sift
+        if self.matches is not None:
+            for match in self.matches:
+                self.buffer[match.trainIdx] = descriptors[match.queryIdx]
+            queryIdx = [m.queryIdx for m in self.matches]
+            print("len queryIdx:", len(queryIdx))
+            self.kp = list(np.array(keypoints)[queryIdx])
+            self.mean, self.std = kp_mean_and_std(self.kp)
+            return True
+        return False
+
+    def try_to_match(self, descriptors):
+        len_matches = 0
+        ratio_threshold = self.ratio_threshold
+        while len_matches < self.min_n_matches and ratio_threshold < 0.9:
+            matches = match_ratio_test(self.matcher, descriptors, self.buffer, ratio_threshold=ratio_threshold)
+            # queryIdx = [m.queryIdx for m in matches]
+            # trainIdx = [m.trainIdx for m in matches]
+            # print("len queryIdx:", len(queryIdx), "         len trainIdx:", len(trainIdx))
+            matches = filter_top_matches(matches, n_top_matches=self.min_n_matches)
+            matches = filter_matches_by_distance(matches, max_distance=75) #@TODO: Test and change this to a better distance
+            len_matches = len(matches)
+            if len_matches >= self.min_n_matches:
+                return matches
+            ratio_threshold = (1 + ratio_threshold) / 2
+            print("ratio_threshold:", ratio_threshold)
         return None

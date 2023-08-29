@@ -138,9 +138,22 @@ def match_ratio_test(matcher, prev_des, des, ratio_threshold=0.75):
     return [m for match_set in matches if len(match_set) >= 2 for m, n in [match_set[:2]] if m.distance < ratio_threshold * n.distance]
 
 
+def filter_matches_by_distance(matches, max_distance=100):
+    return [m for m in matches if m.distance < max_distance]
+
+
+def filter_top_matches(matches, n_top_matches=10):
+    matches = sorted(matches, key=lambda x: x.distance)
+    return matches[:n_top_matches]
+
+
 def filter_unique_matches(matches):
     matches = sorted(matches, key=lambda x: x.trainIdx)
     return [matches[i] for i in range(len(matches)) if i == 0 or matches[i].trainIdx != matches[i - 1].trainIdx]
+
+
+def filter_kp_by_std_dist_from_mean(kp, std, mean, n_std=1):
+    return [k for k in kp if np.all(np.linalg.norm(np.array(k.pt) - mean) < n_std * std)]
 
 
 def kp_mean_and_std(keypoints):
@@ -244,6 +257,19 @@ def change_orb_parameters(orb, **orb_params):
         orb.setPatchSize(orb_params['patchSize'])
     if 'fastThreshold' in orb_params:
         orb.setFastThreshold(orb_params['fastThreshold'])
+
+
+def crop_frame(frame, xy, crop_size):
+    x, y = (xy).astype(np.int)
+    w, h = crop_size
+    top_left = (x-w//2, y-h//2)
+    return frame[y-h//2:y+h//2+1, x-w//2:x+w//2+1], top_left
+
+
+def correct_kp_coordinates(kp, top_left):
+    for k in kp:
+        k.pt = (k.pt[0] + top_left[0], k.pt[1] + top_left[1])
+    return kp
 
 
 def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):
