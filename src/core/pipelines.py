@@ -24,7 +24,7 @@ uncrashed720p = (700, 1280, 1280, 720)
 
 mouse_coords = (-1, -1)
 # n_particles = 11
-n_particles = 11
+n_particles = 1
 smallest_kernel = 15
 # kernel_size = np.arange(smallest_kernel//10, smallest_kernel//10 + n_particles) * 10 + 1
 kernel_size = np.ones(n_particles, dtype=np.int32) * smallest_kernel
@@ -42,8 +42,9 @@ is_random_spread = False
 is_particles = False
 rect_debug = True
 
-
-# particle_grid = ParticlesGrid(youtube_tlwh_small[2:], kernel_size, crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(2*8, 2*6))
+grid_crop_size = 201
+grid_kernel_size = 17
+particle_grid = ParticlesGrid(youtube_tlwh_small[2:], grid_kernel_size, grid_crop_size, nn_size, p=3, q=1e-9, temperature=0.1, grid_size=(8, 6))
 # orb_tracker = ORB_tracker(init_crop_size=101)
 
 

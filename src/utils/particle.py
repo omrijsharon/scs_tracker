@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from rembg import remove, new_session
 
-from utils.helper_functions import grid_from_resolution
+from utils.helper_functions import grid_from_resolution, crop_frame
 from utils.helper_functions import softmax, distance_between_pixels
 
 
@@ -27,7 +27,7 @@ class Particle:
         X, Y = np.meshgrid(axis, axis)
         # gaussian kernel
         std = 61
-        self.nn_p = np.exp(-((X ** 2 + Y ** 2) / (2 * (std // 2) ** 2))) * (1 / (2 * np.pi * (std // 2) ** 2))
+        self.nn_p = np.exp(-((X ** 2 + Y ** 2) / (2 * (std // 2) ** 2))) * (1 / (2 * np.pi * (std // 2) ** 2)) # gaussian kernel. its purpose is to give more weight to the center of the kernel
         self.pixel_noise = int(pixel_noise)
         self.rembg = rembg
 
@@ -61,13 +61,9 @@ class Particle:
         x, y = self.coordinates + self.velocity
         x = int(x)
         y = int(y)
-        cropped_frame = frame[y - self.crop_size // 2:y + self.crop_size // 2 + 1, x - self.crop_size // 2:x + self.crop_size // 2 + 1]
+        cropped_frame = crop_frame(frame, self.coordinates, self.crop_size)
         if np.any(np.array(cropped_frame.shape) == 0):
             return None, None
-        if self.rembg:
-            output = remove((((cropped_frame+1) / 2) * 255).astype(np.uint8), alpha_matting=True)
-            cv2.imshow("output", output)
-            cv2.waitKey(1)
         filtered_scs_frame = self.scs_filter(cropped_frame)
         # filtered_scs_frame = self.scs_filter_angle_invariant(cropped_frame)
         #find the maximum of the filtered_scs_frame
@@ -182,6 +178,7 @@ class Particle:
         filtered_frame_rot90 = cv2.filter2D(frame, cv2.CV_32F, self.kernel_rot90)
         filtered_scs_frame_rot90 = np.sign(filtered_frame_rot90) * (np.abs(filtered_frame_rot90) / (norm_frame + self.q)) ** self.p
         return np.sqrt(((filtered_scs_frame+1)/2) ** 2 + ((filtered_scs_frame_rot90+1)/2) ** 2) - 1
+
 
 class ParticlesGrid:
     def __init__(self, resolution, kernel_size, crop_size, nn_size, p, q, temperature=1, grid_size=(8, 6)):
