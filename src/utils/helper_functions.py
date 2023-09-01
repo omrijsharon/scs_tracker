@@ -51,6 +51,21 @@ def normalize_kernel(k):
     return k / np.linalg.norm(k, keepdims=True)
 
 
+def local_sum(frame, kernel_size):
+    return cv.boxFilter(frame, cv.CV_32F, (kernel_size, kernel_size), normalize=False)
+
+
+def local_magnitude(frame, kernel_size):
+    # assuming square kernel
+    return np.sqrt(local_sum(frame.astype(np.float32) ** 2, kernel_size))
+
+
+def calc_scs(frame, kernel, p=3, q=1e-6):
+    # assuming square kernel
+    filtered_frame = cv.filter2D(frame, cv.CV_32F, kernel)
+    return np.sign(filtered_frame) * (np.abs(filtered_frame) / (local_magnitude(frame, kernel.shape[0]) + q)) ** p
+
+
 def frame_to_numpy(frame, height, width):
     img = np.frombuffer(frame.rgb, np.uint8).reshape(height, width, 3)[:, :, ::-1]
     return img.astype(np.uint8)
@@ -68,6 +83,7 @@ def particles_mean_std(particles_coordinates, weights=None, mask=None):
     if mask is not None:
         particles_coordinates = particles_coordinates[mask]
     return np.mean(particles_coordinates, axis=0), np.std(particles_coordinates, axis=0)
+
 
 def get_particles_attr(particles, attr: str, mask=None):
     values = np.array([getattr(particle, attr) for particle in particles])
@@ -259,11 +275,11 @@ def change_orb_parameters(orb, **orb_params):
         orb.setFastThreshold(orb_params['fastThreshold'])
 
 
-def crop_frame(frame, xy, crop_size):
-    x, y = (xy).astype(np.int)
-    w, h = crop_size
-    top_left = (x-w//2, y-h//2)
-    return frame[y-h//2:y+h//2+1, x-w//2:x+w//2+1], top_left
+def crop_frame(frame, yx, crop_size):
+    y, x = np.array(yx).astype(np.int)
+    w, h = crop_size, crop_size
+    top_left = np.array([y-h//2, x-w//2])
+    return frame[y-h//2:y+h//2+1, x-w//2:x+w//2+1].astype(np.float32), top_left
 
 
 def correct_kp_coordinates(kp, top_left):
