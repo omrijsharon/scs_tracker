@@ -279,7 +279,11 @@ def crop_frame(frame, yx, crop_size):
     y, x = np.array(yx).astype(np.int)
     w, h = crop_size, crop_size
     top_left = np.array([y-h//2, x-w//2])
-    return frame[y-h//2:y+h//2+1, x-w//2:x+w//2+1].astype(np.float32), top_left
+    # crop the frame until the edges of the frame so the crop is always valid
+    top_left = np.maximum(top_left, 0)
+    bottom_right = top_left + np.array([h, w])
+    bottom_right = np.minimum(bottom_right, np.array(frame.shape[:2]))
+    return (frame[top_left[0]:bottom_right[0], top_left[1]:bottom_right[1]]).astype(np.float32), top_left, bottom_right
 
 
 def correct_kp_coordinates(kp, top_left):

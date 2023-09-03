@@ -1,3 +1,4 @@
+from core.optical_flow_tracker import OpticalFlowTracker
 from utils.helper_functions import get_orb_params_from_trackbars, change_orb_parameters, initialize_orb_trackbars
 import utils.screen_capture as sc
 import cv2 as cv
@@ -11,10 +12,12 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
         if event == cv.EVENT_LBUTTONDOWN:
             print("mouse clicked at:", x, y)
             tracker.reset(frame, (x, y))
-    kernel_size = 21
+    kernel_size = 41
     crop_size = 301
     tracker = SCS_Tracker(kernel_size, crop_size)
+    # tracker = OpticalFlowTracker()
     cap = sc.ScreenCapture(monitor_number=1, tlwh=tlwh)
+    tracker.set_frame_size(cap.capture())
 
     def f(x=None):
         return
@@ -76,9 +79,18 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
             temperature = temperature / 100
             # --- max_velocity ---
             max_velocity = cv.getTrackbarPos('max_velocity', window_name)
+            # time the tracker update
+            start = time.time()
             tracker.update(frame)
+            end = time.time()
+            total_time = end - start
+            # print the time it took to update the tracker in FPS
+            # if total_time != 0:
+            #     print("FPS:", 1 / (total_time))
             if cv.getTrackbarPos('draw keypoints?', window_name):
-                tracker.draw_all_on_frame(frame)
+                # tracker.draw_all_on_frame(frame)
+                tracker.draw_square_around_xy(frame, square_size=20)
+        tracker.draw_cross_in_mid_frame(frame)
         # cv.imshow(window_name, gray)
         cv.imshow(window_name, frame)
         if cv.waitKey(10) & 0xFF == 27:
