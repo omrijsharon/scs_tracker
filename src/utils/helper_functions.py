@@ -292,6 +292,73 @@ def correct_kp_coordinates(kp, top_left):
     return kp
 
 
+def calc_gradient_dir(frame, kernel_size):
+    # calculating the gradient of the frame using Sobel operator
+    # frame: grayscale image
+    # returns: gradient direction unit vector as a frame-like image with 2 channels, one for the cos(theta) and one for the sin(theta)
+    sobel_x = cv.Sobel(frame, cv.CV_32F, 1, 0, ksize=kernel_size)
+    sobel_y = cv.Sobel(frame, cv.CV_32F, 0, 1, ksize=kernel_size)
+    gradient = np.stack([sobel_x, sobel_y], axis=2)
+    gradient_norm = np.linalg.norm(gradient, axis=2, keepdims=True)
+    gradient_norm[gradient_norm == 0] = 1
+    gradient /= gradient_norm
+    return gradient # gradient direction unit vector
+
+
+def get_kernel_mean_direction(kernel_grad_dir):
+    return normalize_kernel(np.mean(kernel_grad_dir, axis=(0, 1)))
+
+
+# Calculate the rotation matrix for a given angle in radians
+def rotation_matrix(angle):
+    return np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+
+
+# Rotate a set of vectors
+def rotate_vectors(vectors, angle):
+    return np.dot(vectors, rotation_matrix(angle).T)
+
+
+# Given two vectors, find the angle to rotate the first vector to align with the second vector
+def angle_between_vectors(v1, v2):
+    dot_product = np.dot(v1, v2)
+    det = np.linalg.det(np.array([v1, v2]))
+    angle = np.arctan2(det, dot_product)
+    return angle
+
+
+# Rotate a kernel to align with a given direction
+def rotate_kernel_to_align(kernel, target_direction):
+    kernel_mean_direction = normalize_kernel(np.mean(kernel, axis=(0, 1)))
+    angle = angle_between_vectors(kernel_mean_direction, target_direction)
+    rotated_kernel = rotate_vectors(kernel.reshape(-1, 2), -angle)
+    return rotated_kernel.reshape(kernel.shape)
+
+
+# Calculate the mean direction of a window
+def get_window_mean_direction(window):
+    return normalize_kernel(np.mean(window, axis=(0, 1)))
+
+
+# Batch rotate all windows to align with a given direction
+def batch_rotate_windows(windows, target_direction):
+    # Calculate the mean direction for each window
+    mean_directions = np.apply_along_axis(get_window_mean_direction, axis=(1, 2), arr=windows)
+
+    # Calculate the angle to rotate each window to align with the target direction
+    angles = np.apply_along_axis(angle_between_vectors, axis=1, arr=mean_directions, v2=target_direction)
+
+    # Rotate each window
+    rotated_windows = np.apply_along_axis(rotate_vectors, axis=1, arr=windows.reshape(-1, 2), angle=-angles)
+
+    return rotated_windows.reshape(windows.shape)
+
+
+
+
+
+
+
 def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):
     color_gray = (200, 200, 200)
     color_black = (0, 0, 0)

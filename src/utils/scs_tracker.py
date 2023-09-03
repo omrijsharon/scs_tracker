@@ -5,7 +5,7 @@ from utils.helper_functions import crop_frame, softmax, calc_scs, local_sum
 
 
 class SCS_Tracker:
-    def __init__(self, kernel_size, crop_size, nn_size=3, max_diffusion_radius=11, p=3, q=1e-9, temperature=0.01, max_velocity=150):
+    def __init__(self, kernel_size, crop_size, nn_size=3, max_diffusion_radius=5, p=3, q=1e-9, temperature=0.01, max_velocity=50):
         self.kernel_size = int(kernel_size)
         self.crop_size = int(crop_size)
         # self.min_crop_size = int(2 * self.kernel_size)
@@ -92,7 +92,7 @@ class SCS_Tracker:
         # @TODO: Try to apply the scs filter on gaussian blurred cropped_frame like the octaves in SIFT.
         # calculate the SCS filter
         try:
-            # high pass filter the cropped frame using gaussian blur
+            # gaussian blur to cropped_frame for better results.
             cropped_frame = cv2.GaussianBlur(cropped_frame, (self.max_diffusion_radius, self.max_diffusion_radius), 0)
             # cropped_frame = cropped_frame - blurred_cropped_frame
             self.filtered_scs_frame = calc_scs(cropped_frame, self.kernel, p=self.p, q=self.q)
@@ -179,6 +179,7 @@ class SCS_Tracker:
             filtered_scs_softmax_frame = self.filtered_scs_softmax_frame.copy()
             filtered_scs_softmax_frame /= filtered_scs_softmax_frame.max()
             filtered_scs_softmax_frame = (filtered_scs_softmax_frame * 255).astype(np.uint8)
+            # _, filtered_scs_softmax_frame = cv2.threshold(filtered_scs_softmax_frame, 158, 255, cv2.THRESH_BINARY)
             filtered_scs_softmax_frame = cv2.applyColorMap(filtered_scs_softmax_frame, cv2.COLORMAP_JET)
             frame[self.top_left[0]:self.bottom_right[0], self.top_left[1]:self.bottom_right[1]] = cv2.addWeighted(frame[self.top_left[0]:self.bottom_right[0], self.top_left[1]:self.bottom_right[1]], alpha, filtered_scs_softmax_frame, 1 - alpha, 0)
 
@@ -187,7 +188,7 @@ class SCS_Tracker:
         self.draw_scs_filter_distribution(frame)
         self.draw_rect_around_cropped_frame(frame)
         self.draw_square_around_xy(frame)
-        # if self.is_successful:
-        #     cv2.putText(frame, str(int(self.max_change * 100)) + "%", tuple(self.top_left[::-1]), cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.color, 1)
+        if self.is_successful:
+            cv2.putText(frame, str(int(np.log(self.max_change))), tuple(self.top_left[::-1]), cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.color, 1)
         # self.draw_cross_on_xy(frame)
 
