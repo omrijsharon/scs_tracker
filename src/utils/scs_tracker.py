@@ -3,16 +3,24 @@ import numpy as np
 
 from utils.helper_functions import crop_frame, softmax, calc_scs, local_sum
 
+# Improvments:
+# 1. make a kernel for each color and take the result with the highest log_max_change
+# 2. make kernels in many sizes and take the result with the highest log_max_change
+# 3. add orb keypoints to the scs filter for better target aquasition and for better tracking
+# 4. check weather the scs filter is better than the orb keypoints or not: hint, i already checked it and the scs filter is better.
+# 5. adding a gaussian blur to any of the frame manipulation make the tracker worse. so do not use it at all.
+# 6. try to add octaves to the scs filter like in SIFT. to implement this you need to add a gaussian blur to the frame and then subtract the blurred frame from the original frame.
+
 
 class SCS_Tracker:
-    def __init__(self, kernel_size, crop_size, nn_size=3, max_diffusion_radius=5, p=3, q=1e-9, temperature=0.01, max_velocity=50):
+    def __init__(self, kernel_size, crop_size, nn_size=3, max_diffusion_radius=11, p=3, q=1e-9, temperature=0.05, max_velocity=50):
         self.kernel_size = int(kernel_size)
         self.crop_size = int(crop_size)
         # self.min_crop_size = int(2 * self.kernel_size)
         self.min_crop_size = int(self.crop_size//2)
         self.max_diffusion_radius = int(max_diffusion_radius)
         self.nn_size = int(nn_size)
-        self.log_max_change_threshold = -9
+        self.log_max_change_threshold = -12
         self.kernel = None
         self.frame_size = None
         self.last_coordinates = None

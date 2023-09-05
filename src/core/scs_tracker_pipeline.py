@@ -12,8 +12,8 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
         if event == cv.EVENT_LBUTTONDOWN:
             print("mouse clicked at:", x, y)
             tracker.reset(frame, (x, y))
-    kernel_size = 41
-    crop_size = 301
+    kernel_size = 31
+    crop_size = 201
     tracker = SCS_Tracker(kernel_size, crop_size)
     # tracker = OpticalFlowTracker()
     cap = sc.ScreenCapture(monitor_number=1, tlwh=tlwh)
@@ -88,8 +88,8 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
             # if total_time != 0:
             #     print("FPS:", 1 / (total_time))
             if cv.getTrackbarPos('draw keypoints?', window_name):
-                tracker.draw_all_on_frame(frame)
-                # tracker.draw_square_around_xy(frame, square_size=20)
+                # tracker.draw_all_on_frame(frame)
+                tracker.draw_square_around_xy(frame, square_size=20)
         tracker.draw_cross_in_mid_frame(frame)
         # cv.imshow(window_name, gray)
         cv.imshow(window_name, frame)

@@ -55,7 +55,7 @@ while True:
         hist, bin_edges = np.histogram(kernel_gradient_dir_angle, bins=bins)
         # find in what bin the histogram count is the highest and translate the bin to degrees
         max_bin = np.argmax(hist)
-        max_bin_degrees = (bin_edges[max_bin] + bin_edges[max_bin + 1]) / 2
+        max_bin_degrees = bin_edges[max_bin]
         # draw an arrow in the direction of max_bin_degrees
         cv.arrowedLine(frame, (x_mouse, y_mouse), (x_mouse + int(np.cos(np.deg2rad(max_bin_degrees)) * 100), y_mouse + int(np.sin(np.deg2rad(max_bin_degrees)) * 100)), (0, 255, 0), 1, tipLength=0.1)
         # plt.bar((bin_edges[:-1]-max_bin_degrees), hist, width=10, align='edge', alpha=0.6)
