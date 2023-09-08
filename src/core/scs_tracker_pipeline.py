@@ -4,6 +4,8 @@ import utils.screen_capture as sc
 import cv2 as cv
 import numpy as np
 import time
+
+from utils.scs_color_tracker import SCS_Color_Tracker
 from utils.scs_tracker import SCS_Tracker
 
 
@@ -14,7 +16,8 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
             tracker.reset(frame, (x, y))
     kernel_size = 31
     crop_size = 201
-    tracker = SCS_Tracker(kernel_size, crop_size)
+    # tracker = SCS_Tracker(kernel_size, crop_size)
+    tracker = SCS_Color_Tracker(kernel_size, crop_size)
     # tracker = OpticalFlowTracker()
     cap = sc.ScreenCapture(monitor_number=1, tlwh=tlwh)
     tracker.set_frame_size(cap.capture())
@@ -88,12 +91,13 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
             # if total_time != 0:
             #     print("FPS:", 1 / (total_time))
             if cv.getTrackbarPos('draw keypoints?', window_name):
-                # tracker.draw_all_on_frame(frame)
-                tracker.draw_square_around_xy(frame, square_size=20)
+                tracker.draw_all_on_frame(frame)
+                # tracker.draw_square_around_xy(frame, square_size=20)
+                pass
         tracker.draw_cross_in_mid_frame(frame)
         # cv.imshow(window_name, gray)
         cv.imshow(window_name, frame)
-        if cv.waitKey(10) & 0xFF == 27:
+        if cv.waitKey(1) & 0xFF == 27:
             break
         # time.sleep(1/10)
     cv.destroyAllWindows()

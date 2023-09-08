@@ -66,6 +66,34 @@ def calc_scs(frame, kernel, p=3, q=1e-6):
     return np.sign(filtered_frame) * (np.abs(filtered_frame) / (local_magnitude(frame, kernel.shape[0]) + q)) ** p
 
 
+def calc_scs_multi_channels(frame, kernel, p=3, q=1e-6):
+    conv_frame = filter2d_multi_channels(frame, kernel)
+    local_mag = local_magnitude_multi_channels(frame, kernel.shape[0])
+    return np.sign(conv_frame) * (np.abs(conv_frame) / (local_mag + q)) ** p
+
+
+def scs_matcher(cropped_frame, kernel, top_left, p=3, q=1e-6):
+    scs = calc_scs(cropped_frame, kernel, p, q)
+    return top_left + argmax2d(scs)
+
+
+def scs_matcher_pool(args):
+    cropped_frame, kernel, top_left, p, q = args
+    scs = calc_scs(cropped_frame, kernel, p, q)
+    return top_left + argmax2d(scs)
+
+
+def filter2d_multi_channels(frame, kernel):
+    result = np.zeros_like(frame)
+    for i in range(frame.shape[2]):
+        result[:, :, i] = cv.filter2D(frame[:, :, i], cv.CV_32F, kernel)
+    return result.sum(axis=2)
+
+
+def local_magnitude_multi_channels(frame, kernel_size):
+    return np.sqrt(local_sum(frame, kernel_size).sum(axis=2))
+
+
 def frame_to_numpy(frame, height, width):
     img = np.frombuffer(frame.rgb, np.uint8).reshape(height, width, 3)[:, :, ::-1]
     return img.astype(np.uint8)
@@ -275,6 +303,17 @@ def change_orb_parameters(orb, **orb_params):
         orb.setFastThreshold(orb_params['fastThreshold'])
 
 
+def get_crop_actual_shape(frame, yx, crop_size):
+    y, x = np.array(yx).astype(np.int)
+    w, h = crop_size, crop_size
+    top_left = np.array([y-h//2, x-w//2])
+    # crop the frame until the edges of the frame so the crop is always valid
+    top_left = np.maximum(top_left, 0)
+    bottom_right = top_left + np.array([h, w])
+    bottom_right = np.minimum(bottom_right, np.array(frame.shape[:2]))
+    return tuple(bottom_right - top_left)
+
+
 def crop_frame(frame, yx, crop_size):
     y, x = np.array(yx).astype(np.int)
     w, h = crop_size, crop_size
@@ -284,6 +323,17 @@ def crop_frame(frame, yx, crop_size):
     bottom_right = top_left + np.array([h, w])
     bottom_right = np.minimum(bottom_right, np.array(frame.shape[:2]))
     return (frame[top_left[0]:bottom_right[0], top_left[1]:bottom_right[1]]).astype(np.float32), top_left, bottom_right
+
+
+def crop_frame_multi_channel(frame, yx, crop_size):
+    y, x = np.array(yx).astype(np.int)
+    w, h = crop_size, crop_size
+    top_left = np.array([y-h//2, x-w//2])
+    # crop the frame until the edges of the frame so the crop is always valid
+    top_left = np.maximum(top_left, 0)
+    bottom_right = top_left + np.array([h, w])
+    bottom_right = np.minimum(bottom_right, np.array(frame.shape[:2]))
+    return (frame[top_left[0]:bottom_right[0], top_left[1]:bottom_right[1], :]).astype(np.float32), top_left, bottom_right
 
 
 def correct_kp_coordinates(kp, top_left):
@@ -352,11 +402,6 @@ def batch_rotate_windows(windows, target_direction):
     rotated_windows = np.apply_along_axis(rotate_vectors, axis=1, arr=windows.reshape(-1, 2), angle=-angles)
 
     return rotated_windows.reshape(windows.shape)
-
-
-
-
-
 
 
 def draw_osd(img, width, height, radius=10, thickness=2, cross_size=10, outer_radius=5):

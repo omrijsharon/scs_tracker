@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 
-from utils.helper_functions import crop_frame, softmax, calc_scs, local_sum, get_crop_actual_shape
+from utils.helper_functions import crop_frame, softmax, calc_scs, local_sum, get_crop_actual_shape, \
+    calc_scs_multi_channels, crop_frame_multi_channel
 
 
 # Improvments:
@@ -13,7 +14,7 @@ from utils.helper_functions import crop_frame, softmax, calc_scs, local_sum, get
 # 6. try to add octaves to the scs filter like in SIFT. to implement this you need to add a gaussian blur to the frame and then subtract the blurred frame from the original frame.
 
 
-class SCS_Tracker:
+class SCS_Color_Tracker:
     def __init__(self, kernel_size, crop_size, nn_size=3, max_diffusion_radius=11, p=3, q=1e-9, temperature=0.05, max_velocity=50):
         self.kernel_size = int(kernel_size)
         self.crop_size = int(crop_size)
@@ -22,7 +23,7 @@ class SCS_Tracker:
         self.max_diffusion_radius = int(max_diffusion_radius)
         self.nn_size = int(nn_size)
         self.log_max_change_threshold = -12
-        self.kernel = None
+        self.kernel = np.zeros((self.kernel_size, self.kernel_size, 3), dtype=np.float32)
         self.frame_size = None
         self.last_coordinates = None
         self.coordinates = None
@@ -74,42 +75,30 @@ class SCS_Tracker:
         self.frame_size = frame.shape
 
     def reset(self, frame, xy):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        self.frame_size = gray.shape
+        self.frame_size = frame.shape[:2]
         self.velocity = np.zeros(2)
-        self.create_kernel(gray, np.array(xy[::-1]))
+        self.create_kernel(frame, np.array(xy[::-1]))
         self.last_coordinates = np.array(self.coordinates)
         self.is_initialized = True
         self.is_successful = True
 
     def create_kernel(self, frame, yx):
-        # make sure frame is grayscale
         self.coordinates = yx
-        self.kernel, _, _ = crop_frame(frame, self.coordinates, self.kernel_size)
-        self.kernel /= (np.linalg.norm(self.kernel) + 1e-9)
+        self.kernel, _, _ = crop_frame_multi_channel(frame, self.coordinates,self.kernel_size)
+        self.kernel /= np.linalg.norm(self.kernel, axis=2, keepdims=True)
 
     def update(self, frame):
         assert self.kernel is not None, "kernel is None. call reset() first."
-        # convert frame to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        cropped_frame, self.top_left, self.bottom_right = crop_frame(gray, self.coordinates, self.crop_size)
+        crop_actual_shape = get_crop_actual_shape(frame[:, :, 0], self.coordinates, self.crop_size)
         # check if cropped_frame shape is larger than the minimum crop size
-        if cropped_frame.shape[0] < self.min_crop_size or cropped_frame.shape[1] < self.min_crop_size:
+        if crop_actual_shape[0] < self.min_crop_size or crop_actual_shape[1] < self.min_crop_size:
             print("SCS_tracker: crop is too small")
             self.is_successful = False
             return False
-        # @TODO: Try to apply the scs filter on gaussian blurred cropped_frame like the octaves in SIFT.
-        # calculate the SCS filter
-        try:
-            # gaussian blur to cropped_frame for better results.
-            cropped_frame = cv2.GaussianBlur(cropped_frame, (self.max_diffusion_radius, self.max_diffusion_radius), 0)
-            # cropped_frame = cropped_frame - blurred_cropped_frame
-            self.filtered_scs_frame = calc_scs(cropped_frame, self.kernel, p=self.p, q=self.q)
-        except:
-            print("SCS_tracker: calc_scs failed")
-            print("crop shape:", cropped_frame.shape)
-            self.is_successful = False
-            return False
+        cropped_frame, self.top_left, self.bottom_right = crop_frame_multi_channel(frame, self.coordinates, self.crop_size)
+        cropped_frame = cv2.GaussianBlur(cropped_frame, (self.max_diffusion_radius, self.max_diffusion_radius), 0)
+        # cropped_frame = cropped_frame - blurred_cropped_frame
+        self.filtered_scs_frame = calc_scs_multi_channels(cropped_frame, self.kernel, p=self.p, q=self.q)
         max_index, self.max_change = self.find_max(self.filtered_scs_frame)
         print("log self.max_change:", np.log(self.max_change))
         if np.log(self.max_change) < self.log_max_change_threshold:
@@ -125,7 +114,7 @@ class SCS_Tracker:
         # clip the velocity
         self.velocity = np.clip(self.velocity, a_min=-self.max_velocity, a_max=self.max_velocity)
         # create the kernel
-        self.create_kernel(gray, self.coordinates)
+        self.create_kernel(frame, self.coordinates)
         expected_coordinates = self.coordinates + self.velocity
         if not self.is_in_frame(expected_coordinates):
             print("SCS_tracker: expected_coordinates is out of frame: ", expected_coordinates, "  frame size: ", self.frame_size)
