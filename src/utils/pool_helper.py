@@ -153,7 +153,7 @@ def convert_tuple_to_keypoints(kp):
 def calculate_essential_recover_pose(args):
     pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters = args
     is_use_reprojection_error = False
-    error_threshold = 3
+    error_threshold = 1
     pixel_coords = (0, 0)
     kp_depth = None
     if len(pts1) > 8:
@@ -169,6 +169,7 @@ def calculate_essential_recover_pose(args):
                 _, R, t, _ = cv.recoverPose(E, pts1, pts2)
 
                 errors = calculate_reprojection_error(pts1, pts2, R, t, K)
+                print("min error:", errors.min())
                 # mask pts1 and pts2 by errors with error threshold
                 pts1 = pts1[errors < error_threshold]
                 pts2 = pts2[errors < error_threshold]
@@ -180,26 +181,29 @@ def calculate_essential_recover_pose(args):
                     pts2 = pts2[mask.ravel() == 1]
                     print("len(pts2) per process:", len(pts2))
                     _, R, t, _ = cv.recoverPose(E, pts1, pts2)
+            if (is_use_reprojection_error and len(pts1) > 8) or not is_use_reprojection_error:
+                velocity_dir = R.dot(t.reshape(3, 1))
+                velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
+                pixel_coords_hom = np.dot(K, velocity_dir)
+                pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2]).astype(int).flatten()
 
-            velocity_dir = R.dot(t.reshape(3, 1))
-            velocity_dir = velocity_dir / np.linalg.norm(velocity_dir)
-            pixel_coords_hom = np.dot(K, velocity_dir)
-            pixel_coords = (pixel_coords_hom[0:2] / pixel_coords_hom[2]).astype(int).flatten()
+                if len(pixel_coords) == 4:
+                    pixel_coords = [pixel_coords[0], pixel_coords[2]]
 
-            if len(pixel_coords) == 4:
-                pixel_coords = [pixel_coords[0], pixel_coords[2]]
-
-            pixel_coords[0] = max(0, min(pixel_coords[0], width))
-            pixel_coords[1] = max(0, min(pixel_coords[1], height))
-            # Compute depth
-            # extrinsic = np.hstack([R, t])
-            # P1 = np.dot(K, np.eye(3, 4))
-            # P2 = np.dot(K, extrinsic)
-            # homogeneous_3D = cv.triangulatePoints(P1, P2, pts1.T, pts2.T)
-            # dehomo_3D = (homogeneous_3D / homogeneous_3D[3]).T
-            # depths = dehomo_3D[:, 2]
-            # # get an array in a format of [pixel_y, pixel_y, depth]
-            # kp_depth = np.hstack([pts2, depths.reshape(-1, 1)])
+                pixel_coords[0] = max(0, min(pixel_coords[0], width))
+                pixel_coords[1] = max(0, min(pixel_coords[1], height))
+                # Compute depth
+                # extrinsic = np.hstack([R, t])
+                # P1 = np.dot(K, np.eye(3, 4))
+                # P2 = np.dot(K, extrinsic)
+                # homogeneous_3D = cv.triangulatePoints(P1, P2, pts1.T, pts2.T)
+                # dehomo_3D = (homogeneous_3D / homogeneous_3D[3]).T
+                # depths = dehomo_3D[:, 2]
+                # # get an array in a format of [pixel_y, pixel_y, depth]
+                # kp_depth = np.hstack([pts2, depths.reshape(-1, 1)])
+            else:
+                pixel_coords = (0, 0)
+                # kp_depth = None
     # return pixel_coords, kp_depth
     return pixel_coords, pts1, pts2
 

@@ -6,6 +6,7 @@ import numpy as np
 import time
 
 from utils.scs_color_tracker import SCS_Color_Tracker
+from utils.scs_multi_kernel_tracker import SCS_Multi_Kernel_Tracker
 from utils.scs_tracker import SCS_Tracker
 
 
@@ -15,9 +16,11 @@ def run_scs_tracker(tlwh=sc.YOUTUBE_TLWH_SMALL):
             print("mouse clicked at:", x, y)
             tracker.reset(frame, (x, y))
     kernel_size = 31
-    crop_size = 201
+    crop_size = 151
     # tracker = SCS_Tracker(kernel_size, crop_size)
-    tracker = SCS_Color_Tracker(kernel_size, crop_size)
+    kernel_size = [7, 11, 15, 19, 23, 31, 41]
+    tracker = SCS_Multi_Kernel_Tracker(kernel_size, crop_size)
+    # tracker = SCS_Color_Tracker(kernel_size, crop_size)
     # tracker = OpticalFlowTracker()
     cap = sc.ScreenCapture(monitor_number=1, tlwh=tlwh)
     tracker.set_frame_size(cap.capture())

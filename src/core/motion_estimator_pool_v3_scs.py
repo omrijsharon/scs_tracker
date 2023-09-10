@@ -3,8 +3,6 @@ import cv2 as cv
 from multiprocessing import Pool
 from concurrent.futures import ThreadPoolExecutor
 
-#@TODO: change the kp tracking from matching kp to scs tracker
-
 from time import perf_counter
 from utils.helper_functions import json_reader, scale_intrinsic_matrix, create_intrinsic_matrix, draw_osd, \
     initialize_orb_trackbars, get_orb_params_from_trackbars, filter_kp_and_des_by_trainIdx, is_var_valid, \
@@ -46,7 +44,7 @@ if __name__ == '__main__':
     yx_list = []
     crop_size = 91
     kernel_size = 21
-    max_n_kp = 63
+    max_n_kp = 83
     kp_max_dist = 51
     cross_size = 20
     color_white = (255, 255, 255)
@@ -172,7 +170,6 @@ if __name__ == '__main__':
             pts1 = pts1[dist_criteria]
             pts2 = pts2[dist_criteria]
 
-        print("len(pts1):", len(pts1), "len(pts2):", len(pts2))
         if len(pts1) > min_n_matches:
             args = pts1, pts2, focal, pp, K, width, height, subsample_size, maxIters
             pixel_coords, pts1, pts2 = calculate_essential_recover_pose(args)
@@ -194,6 +191,7 @@ if __name__ == '__main__':
                 pixel_coords = pixel_coords.astype(int)
                 img = cv.circle(img, (image_inv_scale * pixel_coords[0], image_inv_scale * pixel_coords[1]), marker_size, color_black, thickness + 2)
                 img = cv.circle(img, (image_inv_scale * pixel_coords[0], image_inv_scale * pixel_coords[1]), marker_size, color_white, thickness)
+        print("len(pts1):", len(pts1), "len(pts2):", len(pts2))
 
         if len(pts2)>0:
             fps = int(1 / (perf_counter() - t0))
@@ -208,7 +206,8 @@ if __name__ == '__main__':
             cv.putText(img, str(fps) + "FPS", (10, 100), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
 
         if is_draw_keypoints:
-            if len(pts2) > min_n_matches:
+            # if len(pts2) > min_n_matches:
+            if len(pts2) > 0:
                 # draw a line between each keypoint and its maching keypoint from the previous frame
                 # Loop over the matches and draw lines between matching points
                 for pt1, pt2 in zip(pts1, pts2):
